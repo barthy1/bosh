@@ -147,6 +147,23 @@ module Bosh::Director
           end
         end
 
+        describe 'cancel drain' do
+          it 'should stop execution if task was canceled' do
+            allow(client).to receive(:sleep).with(AgentClient::DEFAULT_POLL_INTERVAL)
+            expect(client).to receive(:start_task).and_return task
+            expect(client).to receive(:get_task_status).and_return task
+
+            cancel_task = task.dup
+            cancel_task['state'] = 'not running'
+            expect(client).to receive(:cancel_task).and_return cancel_task
+
+            task_cancelled = TaskCancelled.new(1)
+            expect(Config).to receive(:job_cancelled?).and_raise(task_cancelled)
+
+            expect{client.drain("fake", "args")}.to raise_error(task_cancelled)
+          end
+        end
+
         describe 'run_script' do
           it 'sends the script name to the agent' do
             expect(client).to receive(:send_message).with(:run_script, "script_name", {})
@@ -401,6 +418,21 @@ module Bosh::Director
           expect(client).to receive(:ping).and_raise(Bosh::Director::RpcRemoteException, 'remote exception')
 
           expect { client.wait_until_ready }.to raise_error(Bosh::Director::RpcRemoteException)
+        end
+
+        it 'should raise an exception if task was cancelled' do
+          testjob_class = Class.new(Jobs::BaseJob) do
+            define_method :perform do
+              'foo'
+            end
+          end
+          task_id = 1
+          tasks_dir = Dir.mktmpdir
+          allow(Config).to receive(:base_dir).and_return(tasks_dir)
+          allow(Config).to receive(:cloud_options).and_return({})
+          task = Models::Task.make(:id => task_id, :state => 'cancelling')
+          testjob_class.perform(task_id)
+          expect { client.wait_until_ready }.to raise_error(Bosh::Director::TaskCancelled)
         end
       end
     end

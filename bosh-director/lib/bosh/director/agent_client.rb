@@ -95,7 +95,7 @@ module Bosh::Director
     end
 
     def drain(*args)
-      send_message(:drain, *args)
+      send_cancellable_message(:drain, *args)
     end
 
     def fetch_logs(*args)
@@ -168,7 +168,11 @@ module Bosh::Director
       @deadline = Time.now.to_i + deadline
 
       begin
+        Config.job_cancelled?
         ping
+      rescue TaskCancelled => e
+        @logger.debug("Task was cancelled. Stop waiting response from vm")
+        raise e
       rescue RpcTimeout
         retry if @deadline - Time.now.to_i > 0
         raise RpcTimeout, "Timed out pinging to #{@client_id} after #{deadline} seconds"
@@ -301,6 +305,21 @@ module Bosh::Director
         task['value']
       end
     end
+
+    def send_cancellable_message(method_name, *args)
+      task = start_task(method_name, *args)
+      if task['agent_task_id']
+        begin
+          wait_for_task(task['agent_task_id']) { Config.job_cancelled? }
+        rescue TaskCancelled => e
+          cancel_task(task['agent_task_id'])
+          raise e
+        end
+      else
+        task['value']
+      end
+    end
+
 
     def start_task(method_name, *args)
       AgentMessageConverter.convert_old_message_to_new(handle_message_with_retry(method_name, *args))
