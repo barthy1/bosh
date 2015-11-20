@@ -157,4 +157,9 @@ module Bosh::Director::Models
       content  { Sham.name }
     end
   end
+
+  module Delayed::Backend::Sequel
+    Job.blueprint do
+    end
+  end
 end

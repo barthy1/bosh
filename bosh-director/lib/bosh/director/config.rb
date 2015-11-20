@@ -11,36 +11,36 @@ module Bosh::Director
       include DnsHelper
 
       attr_accessor(
-        :base_dir,
-        :cloud_options,
-        :db,
-        :dns,
-        :dns_db,
-        :dns_domain_name,
-        :event_log,
-        :logger,
-        :max_tasks,
-        :max_threads,
-        :name,
-        :process_uuid,
-        :result,
-        :revision,
-        :task_checkpoint_interval,
-        :trusted_certs,
-        :uuid,
-        :current_job,
-        :encryption,
-        :fix_stateful_nodes,
-        :enable_snapshots,
-        :max_vm_create_tries,
-        :nats_uri,
-        :default_ssh_options
+          :base_dir,
+          :cloud_options,
+          :db,
+          :dns,
+          :dns_db,
+          :dns_domain_name,
+          :event_log,
+          :logger,
+          :max_tasks,
+          :max_threads,
+          :name,
+          :process_uuid,
+          :result,
+          :revision,
+          :task_checkpoint_interval,
+          :trusted_certs,
+          :uuid,
+          :current_job,
+          :encryption,
+          :fix_stateful_nodes,
+          :enable_snapshots,
+          :max_vm_create_tries,
+          :nats_uri,
+          :default_ssh_options
       )
 
       attr_reader(
-        :db_config,
-        :redis_logger_level,
-        :ignore_missing_gateway
+          :db_config,
+          :redis_logger_level,
+          :ignore_missing_gateway
       )
 
       def clear
@@ -76,15 +76,15 @@ module Bosh::Director
         if logging_config.has_key?('file')
           @log_file_path = logging_config.fetch('file')
           shared_appender = Logging.appenders.file(
-            'DirectorLogFile',
-            filename: @log_file_path,
-            layout: ThreadFormatter.layout
+              'DirectorLogFile',
+              filename: @log_file_path,
+              layout: ThreadFormatter.layout
           )
         else
           shared_appender = Logging.appenders.io(
-            'DirectorStdOut',
-            STDOUT,
-            layout: ThreadFormatter.layout
+              'DirectorStdOut',
+              STDOUT,
+              layout: ThreadFormatter.layout
           )
         end
 
@@ -109,10 +109,10 @@ module Bosh::Director
         @max_threads = config.fetch('max_threads', 32).to_i
 
         self.redis_options = {
-          :host     => config['redis']['host'],
-          :port     => config['redis']['port'],
-          :password => config['redis']['password'],
-          :logger   => redis_logger
+            :host => config['redis']['host'],
+            :port => config['redis']['port'],
+            :password => config['redis']['password'],
+            :logger => redis_logger
         }
 
         @revision = get_revision
@@ -144,7 +144,7 @@ module Bosh::Director
 
         @encryption = config['encryption']
         @fix_stateful_nodes = config.fetch('scan_and_fix', {})
-          .fetch('auto_fix_stateful_nodes', false)
+                                  .fetch('auto_fix_stateful_nodes', false)
         @enable_snapshots = config.fetch('snapshots', {}).fetch('enabled', false)
 
         @trusted_certs = config['trusted_certs'] || ''
@@ -174,7 +174,7 @@ module Bosh::Director
       def configure_db(db_config)
         patch_sqlite if db_config['adapter'] == 'sqlite'
 
-        connection_options = db_config.delete('connection_options') {{}}
+        connection_options = db_config.delete('connection_options') { {} }
         db_config.delete_if { |_, v| v.to_s.empty? }
         db_config = db_config.merge(connection_options)
 
@@ -381,28 +381,60 @@ module Bosh::Director
       hash['scheduled_jobs'] || []
     end
 
+    def db
+      configure_db(hash['db'])
+    end
+
+    def configure_db(db_config)
+      #patch_sqlite if db_config['adapter'] == 'sqlite'
+
+      connection_options = db_config.delete('connection_options') { {} }
+      db_config.delete_if { |_, v| v.to_s.empty? }
+      db_config = db_config.merge(connection_options)
+
+      db = Sequel.connect(db_config)
+
+      Bosh::Common.retryable(sleep: 0.5, tries: 20, on: [Exception]) do
+        db.extension :connection_validator
+        true
+      end
+
+      db.pool.connection_validation_timeout = -1
+      if worker_logger
+        db.logger = worker_logger
+        db.sql_log_level = :debug
+      end
+      db
+    end
+
     def identity_provider
       @identity_provider ||= begin
-        # no fetching w defaults?
+                               # no fetching w defaults?
         user_management = hash['user_management']
         user_management ||= {'provider' => 'local'}
         provider_name = user_management['provider']
 
         providers = {
-          'uaa' => Bosh::Director::Api::UAAIdentityProvider,
-          'local' => Bosh::Director::Api::LocalIdentityProvider,
+            'uaa' => Bosh::Director::Api::UAAIdentityProvider,
+            'local' => Bosh::Director::Api::LocalIdentityProvider,
         }
         provider_class = providers[provider_name]
 
         if provider_class.nil?
           raise ArgumentError,
-            "Unknown user management provider '#{provider_name}', " +
-              "available providers are: #{providers.keys.join(", ")}"
+                "Unknown user management provider '#{provider_name}', " +
+                    "available providers are: #{providers.keys.join(", ")}"
         end
 
         Config.logger.debug("Director configured with '#{provider_name}' user management provider")
         provider_class.new(user_management[provider_name] || {}, Bosh::Director::Api::DirectorUUIDProvider.new(Config))
       end
+    end
+
+    def worker_logger
+      logger = Logging::Logger.new('DirectorWorker')
+      logger.level = Logging.levelify('info')
+      logger
     end
 
     def resque_logger

@@ -73,6 +73,7 @@ group :development, :test do
   # for root level specs
   gem 'rest-client'
   gem 'redis'
+  gem 'delayed_job_sequel', '4.0.1', git: 'https://github.com/cloudfoundry/delayed_job_sequel.git'
   gem 'nats'
   gem 'rugged'
 

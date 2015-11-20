@@ -31,7 +31,7 @@ namespace :release do
         sh('bosh create release --final')
       else
         File.open('config/dev.yml', 'w+') { |f| f.write("---\ndev_name: #{name}\n") }
-        sh('bosh create release --force')
+        sh('bosh create release --force --with-tarball')
       end
     end
   end

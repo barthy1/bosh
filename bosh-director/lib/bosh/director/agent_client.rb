@@ -164,11 +164,11 @@ module Bosh::Director
 
     def wait_until_ready(deadline = 600)
       old_timeout = @timeout
-      @timeout = 1.0
+      @timeout = 10.0
       @deadline = Time.now.to_i + deadline
 
       begin
-        Config.job_cancelled?
+       # Config.job_cancelled?
         ping
       rescue TaskCancelled => e
         @logger.debug("Task was cancelled. Stop waiting response from vm")
@@ -185,6 +185,8 @@ module Bosh::Director
     end
 
     def handle_method(method_name, args)
+
+     Config.logger.info("handle_method= #{method_name}")
       result = {}
       result.extend(MonitorMixin)
 
@@ -192,7 +194,7 @@ module Bosh::Director
       timeout_time = Time.now.to_f + @timeout
 
       request = { :protocol => PROTOCOL_VERSION, :method => method_name, :arguments => args }
-
+     Config.logger.info("handle_method request= #{request}")
       if @encryption_handler
         @logger.info("Request: #{request}")
         request = { "encrypted_data" => @encryption_handler.encrypt(request) }
@@ -200,7 +202,8 @@ module Bosh::Director
       end
 
       recipient = "#{@service_name}.#{@client_id}"
-
+     Config.logger.info("handle_method recipient= #{recipient}")
+     begin
       request_id = @nats_rpc.send_request(recipient, request) do |response|
         if @encryption_handler
           begin
@@ -210,14 +213,16 @@ module Bosh::Director
           end
           @logger.info("Response: #{response}")
         end
-
+        Config.logger.info("handle_method result= #{response}")
         result.synchronize do
           inject_compile_log(response)
           result.merge!(response)
           cond.signal
         end
       end
-
+     rescue Exception => e
+       Config.logger.info ("Exception!! #{e.inspect}")
+end
       result.synchronize do
         while result.empty?
           timeout = timeout_time - Time.now.to_f
@@ -234,7 +239,7 @@ module Bosh::Director
       if result.has_key?("exception")
         raise RpcRemoteException, format_exception(result["exception"])
       end
-
+     Config.logger.info("handle_method result= #{result}")
       result["value"]
     end
 

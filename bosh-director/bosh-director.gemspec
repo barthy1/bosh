@@ -23,6 +23,7 @@ Gem::Specification.new do |spec|
   spec.executables << 'bosh-director-drain-workers'
   spec.executables << 'bosh-director-migrate'
   spec.executables << 'bosh-director-scheduler'
+  spec.executables << 'bosh-director-worker-dj'
   spec.executables << 'bosh-director-worker'
 
   # NOTE: We must specify all transitive BOSH gem dependencies found in the
@@ -67,7 +68,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'membrane',         '~>1.1.0'
   spec.add_dependency 'semi_semantic',    '~>1.1.0'
   spec.add_dependency 'cf-uaa-lib',       '~>3.2.1'
-
+  spec.add_dependency 'delayed_job_sequel', '~>4.0.1'
   spec.add_development_dependency 'timecop'
   spec.add_development_dependency 'rspec'
   spec.add_development_dependency 'rspec-its'

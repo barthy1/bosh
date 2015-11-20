@@ -69,7 +69,7 @@ module Bosh::Dev::Sandbox
       stderr ? File.read(stderr) : ''
     end
 
-    private
+
 
     def running?(pid)
       pid && Process.kill(0, pid)
@@ -80,6 +80,8 @@ module Bosh::Dev::Sandbox
       @logger.debug(`ps #{pid}`)
       false
     end
+
+    private
 
     def wait_for_process_to_exit_or_be_killed(pid, kill_on_timeout = true)
       Timeout::timeout(20) do
