@@ -106,8 +106,8 @@ describe 'upload release', type: :integration do
       expect(out).to match /bar\s*\(.*\)\s*UPLOAD/
       expect(out).to match /Release repacked/
       expect(out).to match /Started creating new packages > bar.*Done/
-      expect(out).to match /Started processing 7 existing packages > Processing 7 existing packages.*Done/
-      expect(out).to match /Started processing 9 existing jobs > Processing 9 existing jobs.*Done/
+      expect(out).to match /Started processing 17 existing packages > Processing 17 existing packages.*Done/
+      expect(out).to match /Started processing 12 existing jobs > Processing 12 existing jobs.*Done/
       expect(out).to match /Release uploaded/
 
       out = bosh_runner.run('releases')
@@ -272,9 +272,8 @@ describe 'upload release', type: :integration do
         Releases total: 1
       )
 
-      inspect_release_out = scrub_blobstore_ids(bosh_runner.run("inspect release test_release/1"))
+      inspect_release_out = scrub_random_ids(bosh_runner.run("inspect release test_release/1"))
       expect(inspect_release_out).to match_output %(
-        Acting as user 'test' on 'Test Director'
         +-----------------------+------------------------------------------+--------------------------------------+------------------------------------------+
         | Job                   | Fingerprint                              | Blobstore ID                         | SHA1                                     |
         +-----------------------+------------------------------------------+--------------------------------------+------------------------------------------+
@@ -320,7 +319,7 @@ describe 'upload release', type: :integration do
       shared_release_desc = bosh_runner.run("inspect release release_with_shared_blobs/1")
 
       expect(test_release_desc).to_not eq(shared_release_desc)
-      expect(scrub_blobstore_ids(test_release_desc)).to eq(scrub_blobstore_ids(shared_release_desc))
+      expect(scrub_random_ids(test_release_desc)).to eq(scrub_random_ids(shared_release_desc))
     end
 
     it 'raises an error if the uploaded release version already exists but there are packages with different fingerprints' do
@@ -468,19 +467,7 @@ describe 'upload release', type: :integration do
       inspect_release_with_other_name_out = bosh_runner.run("inspect release test_release_with_other_name/1")
       inspect_release_out = bosh_runner.run("inspect release test_release/1")
 
-      expect(scrub_blobstore_ids(inspect_release_out)).to match_output %(
-        Acting as user 'test' on 'Test Director'
-        +-----------------------+------------------------------------------+--------------------------------------+------------------------------------------+
-        | Job                   | Fingerprint                              | Blobstore ID                         | SHA1                                     |
-        +-----------------------+------------------------------------------+--------------------------------------+------------------------------------------+
-        | job_using_pkg_1       | 9a5f09364b2cdc18a45172c15dca21922b3ff196 | xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx | a7d51f65cda79d2276dc9cc254e6fec523b07b02 |
-        | job_using_pkg_1_and_2 | 673c3689362f2adb37baed3d8d4344cf03ff7637 | xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx | c9acbf245d4b4721141b54b26bee20bfa58f4b54 |
-        | job_using_pkg_2       | 8e9e3b5aebc7f15d661280545e9d1c1c7d19de74 | xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx | 79475b0b035fe70f13a777758065210407170ec3 |
-        | job_using_pkg_3       | 54120dd68fab145433df83262a9ba9f3de527a4b | xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx | ab4e6077ecf03399f215e6ba16153fd9ebbf1b5f |
-        | job_using_pkg_4       | 0ebdb544f9c604e9a3512299a02b6f04f6ea6d0c | xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx | 1ff32a12e0c574720dd8e5111834bac67229f5c1 |
-        | job_using_pkg_5       | fb41300edf220b1823da5ab4c243b085f9f249af | xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx | 37350e20c6f78ab96a1191e5d97981a8d2831665 |
-        +-----------------------+------------------------------------------+--------------------------------------+------------------------------------------+
-
+      expect(scrub_random_ids(inspect_release_out)).to match_output %(
         +--------------------------+------------------------------------------+-----------------------------------------+--------------------------------------+------------------------------------------+
         | Package                  | Fingerprint                              | Compiled For                            | Blobstore ID                         | SHA1                                     |
         +--------------------------+------------------------------------------+-----------------------------------------+--------------------------------------+------------------------------------------+
@@ -520,9 +507,8 @@ describe 'upload release', type: :integration do
       output = bosh_runner.run("upload release #{spec_asset('compiled_releases/release-test_release-1-on-centos-7-stemcell-3001.tgz')}")
       expect(output).to include('Release uploaded')
 
-      output = scrub_blobstore_ids(bosh_runner.run('inspect release test_release/1'))
+      output = scrub_random_ids(bosh_runner.run('inspect release test_release/1'))
       expect(output).to match_output %(
-        Acting as user 'test' on 'Test Director'
         +-----------------------+------------------------------------------+--------------------------------------+------------------------------------------+
         | Job                   | Fingerprint                              | Blobstore ID                         | SHA1                                     |
         +-----------------------+------------------------------------------+--------------------------------------+------------------------------------------+
@@ -571,7 +557,7 @@ describe 'upload release', type: :integration do
         blobs << line.split('|')[4]
       }
       blobs.shift
-      blobs
+      blobs.select { |s| !s.nil? && s != "" }
     end
 
     def search_and_delete_files(file_path, blob_files)
@@ -588,40 +574,64 @@ describe 'upload release', type: :integration do
       end
     end
 
-    it 'fixes packages in blobstore that are broken or missing' do
-      target_and_login
+    before { target_and_login }
 
-      Dir.chdir(ClientSandbox.test_release_dir) do
-        bosh_runner.run_in_current_dir('create release')
-        bosh_runner.run_in_current_dir('upload release')
+    context 'when uploading source package' do
+      it 'Re-uploads all packages to replace old ones and eliminates broken compiled packages' do
+        Dir.chdir(ClientSandbox.test_release_dir) do
+          bosh_runner.run_in_current_dir('create release')
+          bosh_runner.run_in_current_dir('upload release')
+        end
+
+        bosh_runner.run("upload stemcell #{spec_asset('valid_stemcell.tgz')}")
+
+        cloud_config_manifest = yaml_file('cloud_manifest', Bosh::Spec::Deployments.simple_cloud_config)
+        bosh_runner.run("update cloud-config #{cloud_config_manifest.path}")
+
+        deployment_manifest = yaml_file('deployment_manifest', Bosh::Spec::Deployments.simple_manifest)
+        bosh_runner.run("deployment #{deployment_manifest.path}")
+
+        expect(bosh_runner.run('deploy')).to match /Deployed.*to.*/
+
+        inspect1 = bosh_runner.run('inspect release bosh-release/0+dev.1')
+        blob_files_1 = get_blob_files(inspect1.split(/\n\n/)[1])
+
+        # Delete all package and compiled package blob files
+        search_and_delete_files(current_sandbox.blobstore_storage_dir, blob_files_1)
+
+        Dir.chdir(ClientSandbox.test_release_dir) do
+          out = bosh_runner.run_in_current_dir('upload release --fix')
+        end
+
+        expect(bosh_runner.run('deploy')).to match /Deployed.*to.*/
+
+        inspect2 = bosh_runner.run('inspect release bosh-release/0+dev.1')
+        blob_files_2 = get_blob_files(inspect2.split(/\n\n/)[1])
+
+        expect(blob_files_2 - blob_files_1).to eq blob_files_2
       end
+    end
 
-      bosh_runner.run("upload stemcell #{spec_asset('valid_stemcell.tgz')}")
+    context 'when uploading compiled package' do
+      it 'Re-uploads all compiled packages to replace old ones' do
+        bosh_runner.run("upload stemcell #{spec_asset('valid_stemcell.tgz')}")
+        output = bosh_runner.run("upload release #{spec_asset('release-hello-go-50-on-toronto-os-stemcell-1.tgz')}")
+        expect(output).to include('Release uploaded')
 
-      cloud_config_manifest = yaml_file('cloud_manifest', Bosh::Spec::Deployments.simple_cloud_config)
-      bosh_runner.run("update cloud-config #{cloud_config_manifest.path}")
+        inspect1 = bosh_runner.run('inspect release hello-go/50')
+        blob_files_1 = get_blob_files(inspect1.split(/\n\n/)[1])
 
-      deployment_manifest = yaml_file('deployment_manifest', Bosh::Spec::Deployments.simple_manifest)
-      bosh_runner.run("deployment #{deployment_manifest.path}")
+        # Delete all package and compiled package blob files
+        search_and_delete_files(current_sandbox.blobstore_storage_dir, blob_files_1)
 
-      expect(bosh_runner.run('deploy')).to match /Deployed.*to.*/
+        output = bosh_runner.run("upload release #{spec_asset('release-hello-go-50-on-toronto-os-stemcell-1.tgz')} --fix")
+        expect(output).to include('Release uploaded')
 
-      inspect1 = bosh_runner.run('inspect release bosh-release/0+dev.1')
-      blob_files_1 = get_blob_files(inspect1.split(/\n\n/)[1])
+        inspect2 = bosh_runner.run('inspect release hello-go/50')
+        blob_files_2 = get_blob_files(inspect2.split(/\n\n/)[1])
 
-      # Delete all package and compiled package blob files
-      search_and_delete_files(current_sandbox.blobstore_storage_dir, blob_files_1)
-
-      Dir.chdir(ClientSandbox.test_release_dir) do
-        out = bosh_runner.run_in_current_dir('upload release --fix')
+        expect(blob_files_2 - blob_files_1).to eq blob_files_2
       end
-
-      expect(bosh_runner.run('deploy')).to match /Deployed.*to.*/
-
-      inspect2 = bosh_runner.run('inspect release bosh-release/0+dev.1')
-      blob_files_2 = get_blob_files(inspect2.split(/\n\n/)[1])
-
-      expect(blob_files_2 - blob_files_1).to eq blob_files_2
     end
   end
 

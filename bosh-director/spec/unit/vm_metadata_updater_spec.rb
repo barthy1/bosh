@@ -47,7 +47,7 @@ describe Bosh::Director::VmMetadataUpdater do
 
       context 'when vm has an instance' do
         before { allow(vm).to receive_messages(instance: instance) }
-        let(:instance) { instance_double('Bosh::Director::Models::Instance', job: 'job-value', index: 'index-value') }
+        let(:instance) { instance_double('Bosh::Director::Models::Instance', uuid: 'some_instance_id', job: 'job-value', index: 'index-value') }
 
         it 'updates vm metadata with deployment specific metadata' do
           expect(cloud).to receive(:set_vm_metadata)
@@ -81,7 +81,7 @@ describe Bosh::Director::VmMetadataUpdater do
         end
 
         it 'updates vm metadata without including instance specific metadata' do
-          expect(cloud).to receive(:set_vm_metadata).with('fake-vm-cid', hash_excluding(:job, :index))
+          expect(cloud).to receive(:set_vm_metadata).with('fake-vm-cid', hash_excluding(:id, :job, :index))
           vm_metadata_updater.update(vm, {})
         end
       end
