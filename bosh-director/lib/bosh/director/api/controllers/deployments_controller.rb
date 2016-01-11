@@ -18,28 +18,17 @@ module Bosh::Director
         json_encode(response)
       end
 
-      # PUT /deployments/foo/jobs/dea?new_name=dea_new
+      # PUT /deployments/foo/jobs/dea?new_name=dea_new or
+      # PUT /deployments/foo/jobs/dea?state={started,stopped,detached,restart,recreate}&skip_drain=true
       put '/:deployment/jobs/:job', :consumes => :yaml do
-        if params['state']
-          options = {
-            'job_states' => {
-              params[:job] => {
-                'state' => params['state']
-              }
+        options = {
+          'job_states' => {
+            params[:job] => {
+              'state' => params['state']
             }
           }
-        else
-          unless params['new_name']
-            raise DirectorError, "Missing operation on job `#{params[:job]}'"
-          end
-          options = {
-            'job_rename' => {
-              'old_name' => params[:job],
-              'new_name' => params['new_name']
-            }
-          }
-          options['job_rename']['force'] = true if params['force'] == 'true'
-        end
+        }
+        options['skip_drain'] = params[:job] if params['skip_drain'] == 'true'
 
         deployment = @deployment_manager.find_by_name(params[:deployment])
         manifest = ((request.content_length.nil?  || request.content_length.to_i == 0) && (params['state'])) ? StringIO.new(deployment.manifest) : request.body
@@ -187,7 +176,7 @@ module Bosh::Director
           task = @vm_state_manager.fetch_vm_state(current_user, deployment, format)
           redirect "/tasks/#{task.id}"
         else
-          @deployment_manager.deployment_vms_to_json(deployment)
+          @deployment_manager.deployment_instances_to_json(deployment)
         end
       end
 

@@ -216,26 +216,26 @@ module Bosh::Director
         expect(vm_metadata_updater).to receive(:update).with(anything, {compiling: 'common'})
         expect(vm_metadata_updater).to receive(:update).with(anything, hash_including(:compiling)).exactly(10).times
 
-          agent_client = instance_double('Bosh::Director::AgentClient')
-          allow(BD::AgentClient).to receive(:with_vm).and_return(agent_client)
-          expect(agent_client).to receive(:compile_package).exactly(11).times do |*args|
-            name = args[2]
-            dot = args[3].rindex('.')
-            version, build = args[3][0..dot-1], args[3][dot+1..-1]
+        agent_client = instance_double('Bosh::Director::AgentClient')
+        allow(BD::AgentClient).to receive(:with_vm_credentials_and_agent_id).and_return(agent_client)
+        expect(agent_client).to receive(:compile_package).exactly(11).times do |*args|
+          name = args[2]
+          dot = args[3].rindex('.')
+          version, build = args[3][0..dot-1], args[3][dot+1..-1]
 
-            package = Models::Package.find(name: name, version: version)
-            expect(args[0]).to eq(package.blobstore_id)
-            expect(args[1]).to eq(package.sha1)
+          package = Models::Package.find(name: name, version: version)
+          expect(args[0]).to eq(package.blobstore_id)
+          expect(args[1]).to eq(package.sha1)
 
-            expect(args[4]).to be_a(Hash)
+          expect(args[4]).to be_a(Hash)
 
-            {
-              'result' => {
-                'sha1' => "compiled #{package.id}",
-                'blobstore_id' => "blob #{package.id}"
-              }
+          {
+            'result' => {
+              'sha1' => "compiled #{package.id}",
+              'blobstore_id' => "blob #{package.id}"
             }
-          end
+          }
+        end
 
         @package_set_a.each do |package|
           expect(compiler).to receive(:with_compile_lock).with(package.id, @stemcell_a.model.id).and_yield
@@ -284,7 +284,7 @@ module Bosh::Director
             'networks' => net
         }
 
-        allow(AgentClient).to receive(:with_vm).and_return(agent)
+        allow(AgentClient).to receive(:with_vm_credentials_and_agent_id).and_return(agent)
         allow(agent).to receive(:wait_until_ready)
         allow(agent).to receive(:update_settings)
         allow(agent).to receive(:apply).with(initial_state)
@@ -395,13 +395,10 @@ module Bosh::Director
       it 'reuses compilation VMs' do
         prepare_samples
 
-        expect(vm_creator).to receive(:create_for_instance_plan).exactly(1).times do |instance_plan, _|
-          vm_model = Models::Vm.make
-          instance_plan.instance.bind_to_vm_model(vm_model)
-        end
+        expect(vm_creator).to receive(:create_for_instance_plan).exactly(1).times
 
         agent_client = instance_double('BD::AgentClient')
-        allow(BD::AgentClient).to receive(:with_vm).and_return(agent_client)
+        allow(BD::AgentClient).to receive(:with_vm_credentials_and_agent_id).and_return(agent_client)
 
         expect(agent_client).to receive(:compile_package).exactly(6).times do |*args|
           name = args[2]
@@ -459,7 +456,7 @@ module Bosh::Director
           with(instance_of(String), @stemcell_a.model.cid, {}, net, [], {}).
           and_return(vm_cid)
 
-        allow(AgentClient).to receive(:with_vm).and_return(agent)
+        allow(AgentClient).to receive(:with_vm_credentials_and_agent_id).and_return(agent)
 
         expect(agent).to receive(:wait_until_ready)
         expect(agent).to receive(:update_settings)
@@ -514,7 +511,7 @@ module Bosh::Director
           # agent raises error
           agent = instance_double('Bosh::Director::AgentClient')
           expect(agent).to receive(:wait_until_ready).and_raise(exception)
-          expect(AgentClient).to receive(:with_vm).and_return(agent)
+          expect(AgentClient).to receive(:with_vm_credentials_and_agent_id).and_return(agent)
 
           expect(cloud).to receive(:delete_vm).once
 
@@ -619,9 +616,8 @@ module Bosh::Director
           ip_provider: ip_provider
         )
       end
-      let(:stemcell) { instance_double(DeploymentPlan::Stemcell, model: Models::Stemcell.make, spec: {}) }
-      let(:vm) { Models::Vm.make }
-      let(:instance) { instance_double(DeploymentPlan::Instance, vm: vm) }
+      let(:stemcell) { instance_double(DeploymentPlan::Stemcell, model: Models::Stemcell.make, spec: {}, cid: 'stemcell-cid') }
+      let(:instance) { instance_double(DeploymentPlan::Instance) }
 
       context 'with reuse_compilation_vms' do
         let(:reuse_compilation_vms) { true }
@@ -661,9 +657,9 @@ module Bosh::Director
         before do
           Bosh::Director::Config.trusted_certs = DIRECTOR_TEST_CERTS
 
-          allow(vm_creator).to receive(:create).and_return(vm)
+          allow(cloud).to receive(:create_vm).and_return('new-vm-cid')
           allow(vm_creator).to receive(:apply_state)
-          allow(AgentClient).to receive_messages(with_vm: client)
+          allow(AgentClient).to receive_messages(with_vm_credentials_and_agent_id: client)
           allow(cloud).to receive(:delete_vm)
           allow(client).to receive(:update_settings)
           allow(client).to receive(:wait_until_ready)
@@ -681,13 +677,15 @@ module Bosh::Director
               #
             end
 
-            expect(Models::Vm.where(trusted_certs_sha1: DIRECTOR_TEST_CERTS_SHA1).count).to eq(0)
+            expect(Models::Instance.find(trusted_certs_sha1: DIRECTOR_TEST_CERTS_SHA1)).to be_nil
           end
         end
 
         it 'should update the database with the new VM' 's trusted certs' do
-          compiler.prepare_vm(stemcell, &Proc.new {})
-          expect(Models::Vm.where(trusted_certs_sha1: DIRECTOR_TEST_CERTS_SHA1, agent_id: vm.agent_id).count).to eq(1)
+          expect {
+            compiler.prepare_vm(stemcell, &Proc.new {})
+          }.to change {
+              Models::Instance.where(trusted_certs_sha1: DIRECTOR_TEST_CERTS_SHA1).count}.from(0).to(1)
         end
 
         context 'when the new vm fails to start' do
