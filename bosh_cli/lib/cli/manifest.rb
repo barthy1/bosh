@@ -62,16 +62,13 @@ module Bosh::Cli
             "please add 'release' or 'releases' section")
       end
 
-      resolve_release_aliases
-      resolve_stemcell_aliases
-
       report_manifest_warnings
 
       @hash
     end
 
     def yaml
-      @yaml ||= Psych.dump(@hash)
+      Psych.dump(@hash)
     end
 
     # @param [Hash] manifest Deployment manifest (will be modified)
@@ -88,12 +85,6 @@ module Bosh::Cli
           latest_version = latest_stemcells[stemcell['name']]
           if latest_version.nil?
             err("Latest version for stemcell `#{stemcell['name']}' is unknown")
-          end
-          # Avoiding {Float,Fixnum} -> String noise in diff
-          if latest_version.to_s == latest_version.to_f.to_s
-            latest_version = latest_version.to_f
-          elsif latest_version.to_s == latest_version.to_i.to_s
-            latest_version = latest_version.to_i
           end
           stemcell['version'] = latest_version
         end
@@ -131,10 +122,6 @@ module Bosh::Cli
             err("Release '#{release['name']}' not found on director. Unable to resolve 'latest' alias in manifest.")
           end
           release['version'] = latest_release_version
-        end
-
-        if release['version'].to_i.to_s == release['version']
-          release['version'] = release['version'].to_i
         end
       end
     end

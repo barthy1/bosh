@@ -11,6 +11,7 @@ module Bosh
         let(:manifest_validator) { Bosh::Director::DeploymentPlan::ManifestValidator.new }
         let(:cloud_config_model) { Models::CloudConfig.make(manifest: cloud_config_hash) }
         let(:cloud_config_hash) { Bosh::Spec::Deployments.simple_cloud_config }
+        let(:manifest) { Manifest.new(manifest_hash, cloud_config_hash)}
         let(:plan_options) { {} }
         let(:event_log_io) { StringIO.new("") }
         let(:logger_io) { StringIO.new("") }
@@ -37,7 +38,7 @@ module Bosh
 
         describe '#create_from_manifest' do
           let(:planner) do
-            subject.create_from_manifest(manifest_hash, cloud_config_model, plan_options)
+            subject.create_from_manifest(manifest, cloud_config_model, plan_options)
           end
 
           it 'returns a planner' do
@@ -53,6 +54,12 @@ module Bosh
             expect(planner.name).to eq('migrated_name')
           end
 
+          it 'resolves aliases in manifest' do
+            manifest_hash['releases'].first['version'] = 'latest'
+            planner
+            expect(manifest_hash['releases'].first['version']).to eq('0.1-dev')
+          end
+
           it 'logs the migrated manifests' do
             allow(deployment_manifest_migrator).to receive(:migrate) do |hash, cloud_config|
               [hash.merge({'name' => 'migrated_name'}), cloud_config]
@@ -66,7 +73,7 @@ Migrated deployment manifest:
 LOGMESSAGE
             expected_cloud_manifest_log = <<LOGMESSAGE
 Migrated cloud config manifest:
-{"networks"=>[{"name"=>"a", "subnets"=>[{"range"=>"192.168.1.0/24", "gateway"=>"192.168.1.1", "dns"=>["192.168.1.1", "192.168.1.2"], "static"=>["192.168.1.10"], "reserved"=>[], "cloud_properties"=>{}}]}], "compilation"=>{"workers"=>1, "network"=>"a", "cloud_properties"=>{}}, "resource_pools"=>[{"name"=>"a", "size"=>3, "cloud_properties"=>{}, "stemcell"=>{"name"=>"ubuntu-stemcell", "version"=>"1"}}]}
+{"networks"=>[{"name"=>"a", "subnets"=>[{"range"=>"192.168.1.0/24", "gateway"=>"192.168.1.1", "dns"=>["192.168.1.1", "192.168.1.2"], "static"=>["192.168.1.10"], "reserved"=>[], "cloud_properties"=>{}}]}], "compilation"=>{"workers"=>1, "network"=>"a", "cloud_properties"=>{}}, "resource_pools"=>[{"name"=>"a", "size"=>3, "cloud_properties"=>{}, "stemcell"=>{"name"=>"ubuntu-stemcell", "version"=>"1"}, "env"=>{"bosh"=>{"password"=>"foobar"}}}]}
 LOGMESSAGE
 # rubocop:enable LineLength
             expect(logger_io.string).to include(expected_deployment_manifest_log)
@@ -76,7 +83,7 @@ LOGMESSAGE
           it 'raises error when manifest has cloud_config properties' do
             manifest_hash['vm_types'] = 'foo'
             expect{
-              subject.create_from_manifest(manifest_hash, cloud_config_model, plan_options)
+              subject.create_from_manifest(manifest, cloud_config_model, plan_options)
             }.to raise_error(Bosh::Director::DeploymentInvalidProperty)
           end
 

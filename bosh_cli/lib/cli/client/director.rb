@@ -180,6 +180,10 @@ module Bosh
           body
         end
 
+        def attach_disk(deployment_name, job_name, instance_id, disk_cid)
+          request_and_track(:put, "/disks/#{disk_cid}/attachments?deployment=#{deployment_name}&job=#{job_name}&instance_id=#{instance_id}")
+        end
+
         def delete_orphan_disk_by_disk_cid(orphan_disk_cid)
           request_and_track(:delete, "/disks/#{orphan_disk_cid}")
         end
@@ -248,16 +252,27 @@ module Bosh
 
           recreate               = options.delete(:recreate)
           skip_drain             = options.delete(:skip_drain)
+          context                = options.delete(:context)
           options[:content_type] = 'text/yaml'
           options[:payload]      = manifest_yaml
 
           url = '/deployments'
 
           extras = []
-          extras << ['recreate', 'true']   if recreate
+          extras << ['recreate', 'true'] if recreate
+          extras << ['context', JSON.dump(context)] if context
           extras << ['skip_drain', skip_drain] if skip_drain
 
           request_and_track(:post, add_query_string(url, extras), options)
+        end
+
+        def diff_deployment(name, manifest_yaml)
+          status, body = post("/deployments/#{name}/diff", 'text/yaml', manifest_yaml)
+          if status == 200
+            JSON.parse(body)
+          else
+            err(parse_error_message(status, body))
+          end
         end
 
         def setup_ssh(deployment_name, job, id, user,

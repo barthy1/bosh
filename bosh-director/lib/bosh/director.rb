@@ -92,6 +92,10 @@ require 'bosh/director/transactor'
 require 'bosh/director/sequel'
 require 'common/thread_pool'
 
+require 'bosh/director/manifest/manifest'
+require 'bosh/director/manifest/changeset'
+require 'bosh/director/manifest/diff_lines'
+
 require 'bosh/director/log_bundles_cleaner'
 require 'bosh/director/logs_fetcher'
 
@@ -131,6 +135,7 @@ require 'bosh/director/jobs/cloud_check/scan_and_fix'
 require 'bosh/director/jobs/cloud_check/apply_resolutions'
 require 'bosh/director/jobs/release/release_job'
 require 'bosh/director/jobs/ssh'
+require 'bosh/director/jobs/attach_disk'
 require 'bosh/director/jobs/helpers'
 
 require 'bosh/director/models/helpers/model_helper'
