@@ -14,7 +14,7 @@ case "$DB" in
     ;;
   postgresql)
     export PATH=/usr/lib/postgresql/9.4/bin:$PATH
-
+    adduser --disabled-password --gecos "" postgres
     su postgres -c '
       export PATH=/usr/lib/postgresql/9.4/bin:$PATH
       export PGDATA=/tmp/postgres
@@ -37,12 +37,16 @@ cd bosh-src
 
 print_git_state
 
+gem install nokogiri -v 1.6.6.2 -- --use-system-libraries --with-xml2-include=/usr/include/libxml2
 bundle install --local
-
+export GOROOT=/usr/local/go
+export GOPATH=$(pwd)/go
+export PATH=$GOROOT/bin:$PATH
 export BOSH_CLI_SILENCE_SLOW_LOAD_WARNING=true
 
+service redis-server start
 # For running all integration specs
-bundle exec rake --trace go spec:integration
+bundle exec rake --trace spec:integration
 
 ## For running individual specs
 #bundle exec rake spec:integration:install_dependencies

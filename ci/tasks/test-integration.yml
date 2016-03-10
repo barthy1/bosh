@@ -1,13 +1,14 @@
 ---
 platform: linux
 
-image: docker:///bosh/main
+image: /var/vcap/data/packages/bosh_rootfs
 
 inputs:
 - name: bosh-src
+- name: ppc64le-tests
 
 run:
-  path: bosh-src/ci/tasks/test-integration.sh
+  path: ppc64le-tests/ci/tasks/test-integration.sh
 
 params:
   RUBY_VERSION: replace-me

@@ -1,1 +1,0 @@
-cp -a * ${BOSH_INSTALL_TARGET}

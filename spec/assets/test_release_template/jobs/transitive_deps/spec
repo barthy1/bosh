@@ -1,7 +1,0 @@
----
-name: transitive_deps
-templates: {}
-packages:
-- a
-
-properties: {}

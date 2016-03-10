@@ -1,7 +1,0 @@
----
-name: job_using_pkg_2
-templates: {}
-packages:
-  - pkg_2
-configuration:
-  file1.conf: config/file1.conf

@@ -1,5 +1,0 @@
----
-name: fails_with_too_much_output
-
-files:
-- foo

@@ -1,8 +1,0 @@
----
-name: director
-dependencies:
-- libpq
-- mysql
-- ruby
-files:
-- bosh/bosh-director/vendor/cache/*

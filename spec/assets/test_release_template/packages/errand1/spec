@@ -1,7 +1,0 @@
----
-name: errand1
-
-dependencies: []
-
-files:
-- errand1/*

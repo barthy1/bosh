@@ -1,8 +1,0 @@
----
-name: foo_7
-files:
-- foo
-- included_dir/*
-excluded_files:
-- included_dir/excluded_file
-

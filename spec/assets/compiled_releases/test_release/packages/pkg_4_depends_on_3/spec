@@ -1,6 +1,0 @@
----
-name: pkg_4_depends_on_3
-dependencies:
-  - pkg_3_depends_on_2
-files:
-  - pkg_4/**
