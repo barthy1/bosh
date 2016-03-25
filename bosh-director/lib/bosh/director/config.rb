@@ -33,13 +33,16 @@ module Bosh::Director
         :max_vm_create_tries,
         :nats_uri,
         :default_ssh_options,
-        :keep_unreachable_vms
+        :keep_unreachable_vms,
+        :enable_post_deploy,
+        :generate_vm_passwords,
+        :remove_dev_tools,
       )
 
       attr_reader(
         :db_config,
-        :redis_logger_level,
-        :ignore_missing_gateway
+        :ignore_missing_gateway,
+        :record_events,
       )
 
       def clear
@@ -91,13 +94,6 @@ module Bosh::Director
         @logger.add_appenders(shared_appender)
         @logger.level = Logging.levelify(logging_config.fetch('level', 'debug'))
 
-        # use a separate logger with the same appender to avoid multiple file writers
-        redis_logger = Logging::Logger.new('DirectorRedis')
-        redis_logger.add_appenders(shared_appender)
-        logging_config = config.fetch('redis', {}).fetch('logging', {})
-        @redis_logger_level = Logging.levelify(logging_config.fetch('level', 'info'))
-        redis_logger.level = @redis_logger_level
-
         # Event logger supposed to be overridden per task,
         # the default one does nothing
         @event_log = EventLog::Log.new
@@ -106,13 +102,6 @@ module Bosh::Director
         @max_tasks = config.fetch('max_tasks', 100).to_i
 
         @max_threads = config.fetch('max_threads', 32).to_i
-
-        self.redis_options = {
-          :host     => config['redis']['host'],
-          :port     => config['redis']['port'],
-          :password => config['redis']['password'],
-          :logger   => redis_logger
-        }
 
         @revision = get_revision
 
@@ -163,6 +152,10 @@ module Bosh::Director
         @ignore_missing_gateway = config['ignore_missing_gateway']
 
         @keep_unreachable_vms = config.fetch('keep_unreachable_vms', false)
+        @enable_post_deploy = config.fetch('enable_post_deploy', false)
+        @generate_vm_passwords = config.fetch('generate_vm_passwords', false)
+        @remove_dev_tools = config['remove_dev_tools']
+        @record_events = config.fetch('record_events', false)
 
         Bosh::Clouds::Config.configure(self)
 
@@ -188,11 +181,12 @@ module Bosh::Director
       def configure_db(db_config)
         patch_sqlite if db_config['adapter'] == 'sqlite'
 
-        connection_options = db_config.delete('connection_options') {{}}
-        db_config.delete_if { |_, v| v.to_s.empty? }
-        db_config = db_config.merge(connection_options)
+        connection_config = db_config.dup
+        connection_options = connection_config.delete('connection_options') {{}}
+        connection_config.delete_if { |_, v| v.to_s.empty? }
+        connection_config = connection_config.merge(connection_options)
 
-        db = Sequel.connect(db_config)
+        db = Sequel.connect(connection_config)
 
         Bosh::Common.retryable(sleep: 0.5, tries: 20, on: [Exception]) do
           db.extension :connection_validator
@@ -248,18 +242,6 @@ module Bosh::Director
 
       alias_method :task_checkpoint, :job_cancelled?
 
-      def redis_options
-        @redis_options ||= {}
-      end
-
-      def redis_logger_level
-        @redis_logger_level || Logger::INFO
-      end
-
-      def redis_options=(options)
-        @redis_options = options
-      end
-
       def cloud_options=(options)
         @lock.synchronize do
           @cloud_options = options
@@ -277,22 +259,6 @@ module Bosh::Director
           end
         end
         @nats_rpc
-      end
-
-      def redis
-        threaded[:redis] ||= Redis.new(redis_options)
-      end
-
-      def redis_logger=(logger)
-        if redis?
-          redis.client.logger = logger
-        else
-          redis_options[:logger] = logger
-        end
-      end
-
-      def redis?
-        !threaded[:redis].nil?
       end
 
       def encryption?
@@ -430,20 +396,25 @@ module Bosh::Director
         end
 
         Config.logger.debug("Director configured with '#{provider_name}' user management provider")
-        provider_class.new(user_management[provider_name] || {}, Bosh::Director::Api::DirectorUUIDProvider.new(Config))
+        provider_class.new(user_management[provider_name] || {})
       end
     end
 
-    def resque_logger
+    def worker_logger
       logger = Logging::Logger.new('DirectorWorker')
-      resque_logging = hash.fetch('resque', {}).fetch('logging', {})
-      if resque_logging.has_key?('file')
-        logger.add_appenders(Logging.appenders.file('DirectorWorkerFile', filename: resque_logging.fetch('file'), layout: ThreadFormatter.layout))
+      logging_config = hash.fetch('logging', {})
+      worker_logging = hash.fetch('delayed_job', {}).fetch('logging', {})
+      if worker_logging.has_key?('file')
+        logger.add_appenders(Logging.appenders.file('DirectorWorkerFile', filename: worker_logging.fetch('file'), layout: ThreadFormatter.layout))
       else
         logger.add_appenders(Logging.appenders.stdout('DirectorWorkerIO', layout: ThreadFormatter.layout))
       end
-      logger.level = Logging.levelify(resque_logging.fetch('level', 'info'))
+      logger.level = Logging.levelify(logging_config.fetch('level', 'debug'))
       logger
+    end
+
+    def db
+      Config.configure_db(hash['db'])
     end
 
     def blobstore_config
@@ -454,8 +425,20 @@ module Bosh::Director
       hash['backup_destination']
     end
 
+    def log_access_events_to_syslog
+      hash['log_access_events_to_syslog']
+    end
+
     def configure_evil_config_singleton!
       Config.configure(hash)
+    end
+
+    def get_uuid_provider
+      Bosh::Director::Api::DirectorUUIDProvider.new(Config)
+    end
+
+    def record_events
+      hash.fetch('record_events', false)
     end
 
     private

@@ -3,7 +3,38 @@ require 'bosh/director/models/instance'
 
 module Bosh::Director::Models
   describe Instance do
-    subject { described_class.make }
+    subject { described_class.make(job: 'test-job') }
+
+    describe '#cloud_properties_hash' do
+      context 'when the cloud_properties are not nil' do
+        it 'should return the parsed json' do
+          subject.cloud_properties = '{"foo":"bar"}'
+          expect(subject.cloud_properties_hash).to eq({'foo' => 'bar'})
+        end
+      end
+
+      context "when the instance's cloud_properties are nil" do
+        context 'when the model is missing data' do
+          it 'does not error' do
+            expect(subject.cloud_properties_hash).to eq({})
+          end
+        end
+
+        context 'when the vm_type has cloud_properties' do
+          it 'should return cloud_properties from vm_type' do
+            subject.spec = {'vm_type' => {'cloud_properties' => {'foo' => 'bar'}}}
+            expect(subject.cloud_properties_hash).to eq({'foo' => 'bar'})
+          end
+        end
+
+        context 'when the vm_type has no cloud properties' do
+          it 'does not error' do
+            subject.spec = {'vm_type' => {'cloud_properties' => nil}}
+            expect(subject.cloud_properties_hash).to eq({})
+          end
+        end
+      end
+    end
 
     describe '#latest_rendered_templates_archive' do
       def perform
@@ -90,6 +121,12 @@ module Bosh::Director::Models
 
           expect(perform.to_a).to eq([not_latest])
         end
+      end
+    end
+
+    describe '#name' do
+      it 'returns the instance name' do
+        expect(subject.name).to eq("test-job/#{subject.uuid}")
       end
     end
 

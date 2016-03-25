@@ -51,7 +51,7 @@ module Bosh::Director
         # One situation where this handler is actually useful is when
         # VM has already been deleted but something failed after that
         # and it is still referenced in DB. In that case it makes sense
-        # to ignore "VM not found" errors in `delete_vm' and let the method
+        # to ignore "VM not found" errors in `delete_vm` and let the method
         # proceed creating a new VM. Other errors are not forgiven.
 
         @logger.warn("VM '#{instance_model.vm_cid}' might have already been deleted from the cloud")
@@ -67,7 +67,8 @@ module Bosh::Director
       dns_manager = DnsManagerProvider.create
       dns_names_to_ip = {}
 
-      instance_plan_to_create.existing_instance.spec['networks'].each do |network_name, network|
+      apply_spec = instance_plan_to_create.existing_instance.spec
+      apply_spec['networks'].each do |network_name, network|
         index_dns_name = dns_manager.dns_record_name(instance_model.index, instance_model.job, network_name, instance_model.deployment.name)
         dns_names_to_ip[index_dns_name] = network['ip']
         id_dns_name = dns_manager.dns_record_name(instance_model.uuid, instance_model.job, network_name, instance_model.deployment.name)
@@ -78,8 +79,20 @@ module Bosh::Director
       dns_manager.update_dns_record_for_instance(instance_model, dns_names_to_ip)
       dns_manager.flush_dns_cache
 
-      cleaner = RenderedJobTemplatesCleaner.new(instance_model, App.instance.blobstores.blobstore, @logger)
-      InstanceUpdater::StateApplier.new(instance_plan_to_create, agent_client(instance_model.credentials, instance_model.agent_id), cleaner, @logger).apply
+      InstanceUpdater::InstanceState.with_instance_update(instance_model) do
+        cleaner = RenderedJobTemplatesCleaner.new(instance_model, App.instance.blobstores.blobstore, @logger)
+
+        # for backwards compatibility with instances that don't have update config
+        update_config = apply_spec['update'].nil? ? nil : DeploymentPlan::UpdateConfig.new(apply_spec['update'])
+
+        InstanceUpdater::StateApplier.new(
+          instance_plan_to_create,
+          agent_client(instance_model.credentials, instance_model.agent_id),
+          cleaner,
+          @logger,
+          {}
+        ).apply(update_config)
+      end
     end
 
     private
@@ -87,7 +100,7 @@ module Bosh::Director
     def create_instance_plan(instance_model, vm_env)
       vm_type = DeploymentPlan::VmType.new(instance_model.spec['vm_type'])
       env = DeploymentPlan::Env.new(vm_env)
-      stemcell = DeploymentPlan::Stemcell.new(instance_model.spec['stemcell'])
+      stemcell = DeploymentPlan::Stemcell.parse(instance_model.spec['stemcell'])
       stemcell.add_stemcell_model
       availability_zone = DeploymentPlan::AvailabilityZone.new(instance_model.availability_zone, instance_model.cloud_properties_hash)
 
@@ -96,6 +109,7 @@ module Bosh::Director
         instance_model.index,
         instance_model.state,
         vm_type,
+        nil,
         stemcell,
         env,
         false,
@@ -134,7 +148,7 @@ module Bosh::Director
     def agent_timeout_guard(vm_cid, vm_credentials, agent_id, &block)
       yield agent_client(vm_credentials, agent_id)
     rescue Bosh::Director::RpcTimeout
-      handler_error("VM `#{vm_cid}' is not responding")
+      handler_error("VM '#{vm_cid}' is not responding")
     end
 
     def vm_deleter

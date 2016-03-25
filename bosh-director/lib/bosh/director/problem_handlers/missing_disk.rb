@@ -12,19 +12,19 @@ module Bosh::Director
         @disk = Models::PersistentDisk[@disk_id]
 
         if @disk.nil?
-          handler_error("Disk `#{@disk_id}' is no longer in the database")
+          handler_error("Disk '#{@disk_id}' is no longer in the database")
         end
 
         @instance = @disk.instance
         if @instance.nil?
-          handler_error("Cannot find instance for disk `#{@disk.disk_cid}'")
+          handler_error("Cannot find instance for disk '#{@disk.disk_cid}'")
         end
       end
 
       def description
         job = @instance.job || "unknown job"
-        index = @instance.index || "unknown index"
-        disk_label = "`#{@disk.disk_cid}' (#{job}/#{index}, #{@disk.size.to_i}M)"
+        uuid = @instance.uuid || "unknown id"
+        disk_label = "'#{@disk.disk_cid}' (#{job}/#{uuid}, #{@disk.size.to_i}M)"
         "Disk #{disk_label} is missing"
       end
 

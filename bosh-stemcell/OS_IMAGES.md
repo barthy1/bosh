@@ -7,6 +7,36 @@ OS images are stored in S3 bucket [bosh-os-images](http://s3.amazonaws.com/bosh-
 
 Ubuntu 14.04 images have filename `bosh-ubuntu-trusty-os-image.tgz`
 
+* `w02UF1DU9KaAxqxP_LcLiBp0P1.cZh3T`
+  - periodic bump to include STIGs
+  - built from develop (7437419b800cdaf2a163fc5606ec360032f37a28)
+
+* `tLeFEoNpFBrwBQbY5jjhOVpAVMSY7UHC`
+  - USN-2932-1: Linux kernel (Vivid HWE) vulnerabilities
+  - built from master (8f4f73a435acfe6728c2588d55d876476b19b725)
+
+* `.ZN3wb_t45goM3wS4rHRGIamJRCmRsuq`
+  - periodic bump
+
+* `2GWd6igY_k.UstpTga8U5nVt6Wh7wQUk`
+  - bump kernel to 3.19.0-51
+
+* `MowCFiZ6MRwCv0BrPlXLOm7rBUqo5X7e`
+  - USN-2910-1: Linux kernel (Vivid HWE) vulnerabilities
+  - built from 3197.1 (ea8b8edc196f6650d4a772bc90e3ee8613056c91)
+
+* `ar7dTtxvhG5d_ytxQ_Js9NDb6ePJV5Jt`
+  - update for USN-2900-1: GNU C Library vulnerability
+  - includes custom kernel update to fix aufs problem
+  - built from 3146.8-os-image (b3122f03ec74c227dad8d6f6c5e730bc4eeafca4)
+
+* `3KSsEYj8q18vJPJfngAjPD2TJqUxwILf`
+  - custom kernel update to fix aufs problem
+  - built from 3146.7-os-image (fe65269b2a438ce8176639e14e6e1f3a09e16b8b)
+
+* `BzKAbSfWFuIlnIRxEpSkdiHDm53nVwlV`
+  - bump for stigs (V-38658)
+
 * `R8M_FtmpgpXpOSGvW_ZHBP0uXGCG1wup`
   - periodic bump
 
@@ -355,6 +385,19 @@ CentOS 6.6 images have filename `bosh-centos-6-os-image.tgz`
 ## CentOS 7
 
 CentOS 7 images have filename `bosh-centos-7-os-image.tgz`
+
+* `UCkAP0ZnLPtOIBjuhhz5TdKSM9wb3BPn`
+  - periodic bump
+  - built from develop (7437419b800cdaf2a163fc5606ec360032f37a28)
+
+* `7qjE9jFXWpH3cUogr7dappkJwThYQpT4`
+  - periodic bump
+
+* `ls0CaYm3laag.H5Qdq1QWxIhNHADvkUD`
+  - periodic bump
+
+* `cEGmwbyceIup.BGXWOWwN2TPYoJoTsNr`
+  - bump for stigs (V-38658)
 
 * `2ZQ9BfHaUhPIATFSOB..99JTymbF1oEY`
   - periodic bump

@@ -30,9 +30,9 @@ module Bosh::Director
       allow(Config).to receive(:dns).and_return({'domain_name' => 'microbosh', 'db' => {}})
     end
 
-    describe 'Resque job class expectations' do
+    describe 'DJ job class expectations' do
       let(:job_type) { :vms }
-      it_behaves_like 'a Resque job'
+      it_behaves_like 'a DJ job'
     end
 
     let(:instance) { Models::Instance.make(deployment: @deployment, agent_id: 'fake-agent-id', vm_cid: 'fake-vm-cid') }
@@ -230,6 +230,21 @@ module Bosh::Director
         job.perform
       end
 
+      context 'without vm_cid' do
+        it 'does not try to contact the agent' do
+          instance.update(vm_cid: nil)
+
+          expect(@result_file).to receive(:write) do |agent_status|
+            status = JSON.parse(agent_status)
+            expect(status['job_state']).to eq(nil)
+          end
+
+          expect(AgentClient).to_not receive(:with_vm_credentials_and_agent_id)
+
+          Jobs::VmState.new(@deployment.id, 'full', true).perform
+        end
+      end
+
       context 'when instance is a bootstrap node' do
         it 'should return bootstrap as true' do
           instance.update(bootstrap: true)
@@ -292,6 +307,24 @@ module Bosh::Director
         end
 
         job.perform
+      end
+
+      context 'when exclude filter is set and vms without cid exist' do
+        before(:each) do
+          Models::Instance.make(deployment: @deployment, agent_id: 'fake-agent-id', vm_cid: 'fake-vm-cid')
+          Models::Instance.make(deployment: @deployment, agent_id: 'fake-agent-id', vm_cid: nil)
+        end
+
+        it 'excludes them' do
+          allow(agent).to receive(:get_state).with('full').and_return({
+              'networks' => { 'test' => { 'ip' => '1.1.1.1' } },
+          })
+          job = Jobs::VmState.new(@deployment.id, 'full')
+
+          expect(@result_file).to receive(:write).once
+
+          job.perform
+        end
       end
     end
   end

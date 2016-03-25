@@ -21,6 +21,7 @@ module Bosh::Director
           'job' => job.spec,
           'index' => instance.index,
           'bootstrap' => instance.bootstrap?,
+          'name' => instance.job_name,
           'id' => instance.uuid,
           'az' => instance.availability_zone_name,
           'networks' => instance_plan.network_settings_hash,
@@ -29,8 +30,11 @@ module Bosh::Director
           'env' => job.env.spec,
           'packages' => job.package_spec,
           'properties' => job.properties,
+          'properties_need_filtering' => true,
           'dns_domain_name' => dns_manager.dns_domain_name,
           'links' => job.link_spec,
+          'address' => instance_plan.network_settings.network_address,
+          'update' => job.update_spec
         }
 
         if job.persistent_disk_type
@@ -104,21 +108,25 @@ module Bosh::Director
           'job',
           'index',
           'bootstrap',
+          'name',
           'id',
           'az',
           'networks',
-          'packages',
           'properties',
+          'properties_need_filtering',
           'dns_domain_name',
           'links',
-          'persistent_disk'
+          'persistent_disk',
+          'address'
         ]
         template_hash = @full_spec.select {|k,v| keys.include?(k) }
 
         networks_hash = template_hash['networks']
         networks_hash_with_dns = networks_hash.each_pair do |network_name, network_settings|
-          settings_with_dns = network_settings.merge({'dns_record_name' => @dns_manager.dns_record_name(@full_spec['index'], @full_spec['job']['name'], network_name, @full_spec['deployment'])})
-          networks_hash[network_name] = settings_with_dns
+          if @full_spec['job'] != nil
+            settings_with_dns = network_settings.merge({'dns_record_name' => @dns_manager.dns_record_name(@full_spec['index'], @full_spec['job']['name'], network_name, @full_spec['deployment'])})
+            networks_hash[network_name] = settings_with_dns
+          end
         end
 
         template_hash.merge({
@@ -138,7 +146,9 @@ module Bosh::Director
           'deployment',
           'job',
           'index',
+          'name',
           'id',
+          'az',
           'networks',
           'packages',
           'dns_domain_name',

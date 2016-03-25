@@ -21,17 +21,17 @@ module Bosh::Director
       def perform
         target = Target.new(@target_payload)
 
-        filter = { deployment_id: @deployment_id }
+        filter = {}
         filter[:job] = target.job if target.job
-
         filter.merge!(target.id_filter)
 
-        instances = @instance_manager.filter_by(filter)
+        deployment = Models::Deployment[@deployment_id]
+        instances = @instance_manager.filter_by(deployment, filter)
 
         ssh_info = instances.map do |instance|
           agent = @instance_manager.agent_client_for(instance)
 
-          logger.info("ssh #{@command} `#{instance.job}/#{instance.uuid}'")
+          logger.info("ssh #{@command} '#{instance.job}/#{instance.uuid}'")
           result = agent.ssh(@command, @params)
           if target.ids_provided?
             result["id"] = instance.uuid

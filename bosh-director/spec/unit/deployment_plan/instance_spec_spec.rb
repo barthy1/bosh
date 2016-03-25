@@ -17,15 +17,17 @@ module Bosh::Director::DeploymentPlan
         spec: job_spec,
         canonical_name: 'job',
         instances: ['instance0'],
-        default_network: {},
+        default_network: {"gateway" => "default"},
         vm_type: vm_type,
+        vm_extensions: [],
         stemcell: stemcell,
         env: env,
         package_spec: packages,
         persistent_disk_type: disk_pool,
-        can_run_as_errand?: false,
+        is_errand?: false,
         link_spec: 'fake-link',
         compilation?: false,
+        update_spec: {},
         properties: properties)
     }
     let(:index) { 0 }
@@ -59,13 +61,16 @@ module Bosh::Director::DeploymentPlan
         network_name = network_spec['name']
         spec = instance_spec.as_apply_spec
         expect(spec['deployment']).to eq('fake-deployment')
+        expect(spec['name']).to eq('fake-job')
         expect(spec['job']).to eq(job_spec)
+        expect(spec['az']).to eq('foo-az')
         expect(spec['index']).to eq(index)
         expect(spec['networks']).to include(network_name)
 
         expect(spec['networks'][network_name]).to eq({
             'type' => 'dynamic',
             'cloud_properties' => network_spec['subnets'].first['cloud_properties'],
+            'default' => ['gateway']
             })
 
         expect(spec['packages']).to eq(packages)
@@ -115,6 +120,7 @@ module Bosh::Director::DeploymentPlan
           spec = instance_spec.as_template_spec
 
           expect(spec['deployment']).to eq('fake-deployment')
+          expect(spec['name']).to eq('fake-job')
           expect(spec['job']).to eq(job_spec)
           expect(spec['index']).to eq(index)
           expect(spec['networks']).to include(network_name)
@@ -127,7 +133,6 @@ module Bosh::Director::DeploymentPlan
                 'gateway' => '192.168.0.254'
                 })
 
-          expect(spec['packages']).to eq(packages)
           expect(spec['persistent_disk']).to eq(0)
           expect(spec['configuration_hash']).to be_nil
           expect(spec['properties']).to eq(properties)
@@ -137,6 +142,7 @@ module Bosh::Director::DeploymentPlan
           expect(spec['az']).to eq('foo-az')
           expect(spec['bootstrap']).to eq(true)
           expect(spec['resource_pool']).to eq('fake-vm-type')
+          expect(spec['address']).to eq('192.168.0.10')
         end
       end
 
@@ -145,6 +151,7 @@ module Bosh::Director::DeploymentPlan
           network_name = network_spec['name']
           spec = instance_spec.as_template_spec
           expect(spec['deployment']).to eq('fake-deployment')
+          expect(spec['name']).to eq('fake-job')
           expect(spec['job']).to eq(job_spec)
           expect(spec['index']).to eq(index)
           expect(spec['networks']).to include(network_name)
@@ -155,7 +162,6 @@ module Bosh::Director::DeploymentPlan
                 'cloud_properties' => network_spec['subnets'].first['cloud_properties'],
                 )
 
-          expect(spec['packages']).to eq(packages)
           expect(spec['persistent_disk']).to eq(0)
           expect(spec['configuration_hash']).to be_nil
           expect(spec['properties']).to eq(properties)
@@ -165,6 +171,7 @@ module Bosh::Director::DeploymentPlan
           expect(spec['az']).to eq('foo-az')
           expect(spec['bootstrap']).to eq(true)
           expect(spec['resource_pool']).to eq('fake-vm-type')
+          expect(spec['address']).to eq('uuid-1.fake-job.default.fake-deployment.bosh')
         end
       end
     end

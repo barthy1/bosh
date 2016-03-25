@@ -7,6 +7,7 @@ module Bosh::Director::Models
     one_to_many  :properties, :class => "Bosh::Director::Models::DeploymentProperty"
     one_to_many  :problems, :class => "Bosh::Director::Models::DeploymentProblem"
     many_to_one  :cloud_config
+    many_to_one  :runtime_config
 
     def validate
       validates_presence :name
@@ -21,6 +22,15 @@ module Bosh::Director::Models
 
     def link_spec=(data)
       self.link_spec_json = Yajl::Encoder.encode(data)
+    end
+
+    def self.transform_admin_team_scope_to_teams(token_scopes)
+      return [] if token_scopes.nil?
+      team_scopes = token_scopes.map do |scope|
+        match = scope.match(/\Abosh\.teams\.([^\.]*)\.admin\z/)
+        match[1] unless match.nil?
+      end
+      team_scopes.compact
     end
   end
 

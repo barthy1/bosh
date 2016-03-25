@@ -202,6 +202,20 @@ describe Bosh::Cli::Client::Director do
       end
     end
 
+    describe '#list_events' do
+      it 'can list events before a given id' do
+        expect(@director).to receive(:get).with('/events?before_id=4', 'application/json')
+                               .and_return([200, JSON.generate([]), {}])
+        @director.list_events({before_id: 4})
+      end
+
+      it 'can list all events' do
+        expect(@director).to receive(:get).with('/events', 'application/json')
+                               .and_return([200, JSON.generate([]), {}])
+        @director.list_events
+      end
+    end
+
     it 'creates user' do
       expect(@director).to receive(:post).
         with('/users', 'application/json',
@@ -266,6 +280,32 @@ describe Bosh::Cli::Client::Director do
       @director.list_stemcells
     end
 
+    it 'retrieves latest cloud config' do
+      expect(@director).to receive(:get).with('/cloud_configs?limit=1', 'application/json').
+          and_return([200, JSON.generate([]), {}])
+      @director.get_cloud_config
+    end
+
+    it 'updates cloud config' do
+      expect(@director).to receive(:post).
+          with('/cloud_configs', 'text/yaml', 'cloud config manifest').
+          and_return(true)
+      @director.update_cloud_config('cloud config manifest')
+    end
+
+    it 'retrieves latest runtime config' do
+      expect(@director).to receive(:get).with('/runtime_configs?limit=1', 'application/json').
+          and_return([200, JSON.generate([]), {}])
+      @director.get_runtime_config
+    end
+
+    it 'updates runtime config' do
+      expect(@director).to receive(:post).
+          with('/runtime_configs', 'text/yaml', 'runtime config manifest').
+          and_return(true)
+      @director.update_runtime_config('runtime config manifest')
+    end
+
     it 'lists releases' do
       expect(@director).to receive(:get).with('/releases', 'application/json').
         and_return([200, JSON.generate([]), {}])
@@ -296,6 +336,12 @@ describe Bosh::Cli::Client::Director do
              'application/json').
         and_return([200, JSON.generate([]), {}])
       @director.list_running_tasks
+
+      expect(@director).to receive(:get).
+          with('/tasks?state=processing,cancelling,queued&verbose=1&deployment=deployment-name',
+               'application/json').
+          and_return([200, JSON.generate([]), {}])
+      @director.list_running_tasks(1, 'deployment-name')
     end
 
     it 'lists recent tasks' do
@@ -313,6 +359,11 @@ describe Bosh::Cli::Client::Director do
         with('/tasks?limit=50&verbose=2', 'application/json').
         and_return([200, JSON.generate([]), {}])
       @director.list_recent_tasks(50, 2)
+
+      expect(@director).to receive(:get).
+          with('/tasks?limit=50&verbose=2&deployment=deployment-name', 'application/json').
+          and_return([200, JSON.generate([]), {}])
+      @director.list_recent_tasks(50, 2, 'deployment-name')
     end
 
     it 'uploads local release' do
@@ -524,6 +575,59 @@ describe Bosh::Cli::Client::Director do
       @director.delete_snapshot('foo', 'snap0a')
     end
 
+    describe '#diff_deployment' do
+
+      let(:request_headers) { { 'Authorization' => 'Basic dXNlcjpwYXNz' } }
+
+      let(:manifest) do
+        <<-MANIFEST
+---
+name: test
+releases:
+- name: simple
+  version: 2
+resource_pools:
+- name: rp
+  stemcell:
+    name: ubuntu
+    version: 1
+networks:
+- name: default
+jobs:
+- name: job1
+  template: xyz
+  networks:
+  - name: default
+- name: old_job
+  template: xyz
+  networks:
+  - name: default
+        MANIFEST
+      end
+
+      context 'redacting' do
+        it 'does not pass redact=false parameter' do
+          stub_request(:post, 'https://127.0.0.1:8080/deployments/foo/diff').
+            with(headers: request_headers).
+            to_return(status: 200, body: '{}')
+          expect(@director).to receive(:post).with('/deployments/foo/diff', 'text/yaml', manifest)
+                                 .and_return([200, '{}'])
+          @director.diff_deployment('foo', manifest)
+        end
+      end
+
+      context 'not redacting' do
+        it 'passes redact=false parameter' do
+          stub_request(:post, 'https://127.0.0.1:8080/deployments/foo/diff?redact=false').
+            with(headers: request_headers).
+            to_return(status: 200, body: '{}')
+          expect(@director).to receive(:post).with('/deployments/foo/diff?redact=false', 'text/yaml', manifest)
+                                 .and_return([200, '{}'])
+          @director.diff_deployment('foo', manifest, false)
+        end
+      end
+    end
+
     it 'ssh setup' do
       payload = {
           'command'         => 'setup',
@@ -632,7 +736,7 @@ describe Bosh::Cli::Client::Director do
 
       it 'reports timeout if the director can not be restarted in time' do
         expect(@director).to receive(:get).
-                                 with('/info', 'application/json').twice.
+                                 with('/info', 'application/json').at_least(:once).
                                  and_return([200, '{}'])
         expect(@director.check_director_restart(1, 1)).to eql(false)
       end

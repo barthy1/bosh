@@ -78,6 +78,7 @@ module Bosh::Director
   ReleaseExistingJobFingerprintMismatch = err(30013)
   ReleaseVersionCommitHashMismatch = err(30014)
   ReleaseSha1DoesNotMatch = err(30015)
+  ReleasePackageDependencyKeyMismatch = err(30016)
 
   ValidationInvalidType = err(40000)
   ValidationMissingField = err(40001)
@@ -139,6 +140,8 @@ module Bosh::Director
   CompilationConfigInvalidAvailabilityZone = err(120002)
   CompilationConfigInvalidVmType = err(120003)
   CompilationConfigCloudPropertiesNotAllowed = err(120004)
+  CompilationConfigInvalidVmExtension = err(120005)
+  CompilationConfigVmTypeRequired = err(120004)
 
   # Manifest parsing: network section
   NetworkReservationInvalidIp = err(130001)
@@ -175,6 +178,7 @@ module Bosh::Director
   JobMissingAvailabilityZones = err(140017)
   JobUnknownAvailabilityZone = err(140018)
   JobAmbiguousEnv = err(140019)
+  JobBothInstanceGroupAndJob = err(140020)
 
   # Manifest parsing: job networks section
   JobUnknownNetwork = err(150001)
@@ -207,6 +211,7 @@ module Bosh::Director
   DeploymentDuplicateReleaseName = err(190002)
   DeploymentDuplicateResourcePoolName = err(190003)
   DeploymentDuplicateVmTypeName = err(190004)
+  DeploymentDuplicateVmExtensionName = err(190005)
   DeploymentCanonicalJobNameTaken = err(190006)
   DeploymentCanonicalNetworkNameTaken = err(190007)
   DeploymentNoNetworks = err(190008)
@@ -267,4 +272,13 @@ module Bosh::Director
   AttachDiskErrorUnknownInstance = err(520001)
   AttachDiskNoPersistentDisk =  err(520002)
   AttachDiskInvalidInstanceState = err(520003)
+
+  # Addons
+  RuntimeAmbiguousReleaseSpec = err(530000)
+  RuntimeInvalidReleaseVersion = err(530001)
+  RuntimeReleaseNotListedInReleases = err(530002)
+  RuntimeInvalidDeploymentRelease = err(530003)
+
+  # Authorization errors
+  UnauthorizedToAccessDeployment = err(600000, UNAUTHORIZED)
 end

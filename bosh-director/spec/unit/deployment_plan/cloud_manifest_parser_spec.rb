@@ -49,7 +49,7 @@ module Bosh::Director
             let(:availability_zones) { {'azs' => [{'name' => 'z1'}, {'name' => 'z1'}]} }
 
             it 'raises error' do
-              expect { parsed_cloud_planner }.to raise_error(DeploymentDuplicateAvailabilityZoneName, "Duplicate az name `z1'")
+              expect { parsed_cloud_planner }.to raise_error(DeploymentDuplicateAvailabilityZoneName, "Duplicate az name 'z1'")
             end
           end
 
@@ -86,7 +86,7 @@ module Bosh::Director
               parsed_cloud_planner
             }.to raise_error(
                 ValidationMissingField,
-                /Required property `compilation' was not specified in object .+/,
+                /Required property 'compilation' was not specified in object .+/,
               )
           end
         end
@@ -104,7 +104,7 @@ module Bosh::Director
             expect {
               parsed_cloud_planner
             }.to raise_error(
-                /unknown network `nonexistent-network'/,
+                /unknown network 'nonexistent-network'/,
               )
           end
         end
@@ -273,7 +273,7 @@ module Bosh::Director
                 parsed_cloud_planner
               }.to raise_error(
                   DeploymentCanonicalNetworkNameTaken,
-                  "Invalid network name `Bar', canonical name already taken",
+                  "Invalid network name 'Bar', canonical name already taken",
                 )
             end
           end
@@ -297,7 +297,7 @@ module Bosh::Director
               parsed_cloud_planner
             }.to raise_error(
                 ValidationMissingField,
-                /Required property `networks' was not specified in object .+/,
+                /Required property 'networks' was not specified in object .+/,
               )
           end
         end
@@ -337,7 +337,7 @@ module Bosh::Director
                 parsed_cloud_planner
               }.to raise_error(
                   DeploymentDuplicateResourcePoolName,
-                  "Duplicate resource pool name `same-name'",
+                  "Duplicate resource pool name 'same-name'",
                 )
             end
           end
@@ -404,9 +404,25 @@ module Bosh::Director
                 parsed_cloud_planner
               }.to raise_error(
                   DeploymentDuplicateVmTypeName,
-                  "Duplicate vm type name `same-name'",
+                  "Duplicate vm type name 'same-name'",
                 )
             end
+          end
+        end
+      end
+
+      describe 'vm_extensions' do
+        context 'when vm_extensions are specified' do
+
+        before do
+          cloud_manifest['vm_extensions'] = [
+              Bosh::Spec::Deployments.vm_extension.merge({'name' => 'vm-extension-1-name'}),
+              Bosh::Spec::Deployments.vm_extension.merge({'name' => 'vm-extension-2-name'})
+          ]
+        end
+          it 'should create vmExtension for each entry' do
+            expect(parsed_cloud_planner.vm_extensions.map(&:class)).to eq([DeploymentPlan::VmExtension, DeploymentPlan::VmExtension])
+            expect(parsed_cloud_planner.vm_extensions.map(&:name)).to eq(['vm-extension-1-name', 'vm-extension-2-name'])
           end
         end
       end
@@ -445,7 +461,7 @@ module Bosh::Director
                 parsed_cloud_planner
               }.to raise_error(
                   DeploymentDuplicateDiskTypeName,
-                  "Duplicate disk pool name `same-name'",
+                  "Duplicate disk pool name 'same-name'",
                 )
             end
           end
@@ -485,7 +501,7 @@ module Bosh::Director
                   parsed_cloud_planner
                 }.to raise_error(
                     DeploymentDuplicateDiskTypeName,
-                    "Duplicate disk type name `same-name'",
+                    "Duplicate disk type name 'same-name'",
                   )
               end
             end

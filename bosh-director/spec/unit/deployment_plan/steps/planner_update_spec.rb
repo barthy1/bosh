@@ -2,9 +2,7 @@ require 'spec_helper'
 
 module Bosh::Director::DeploymentPlan
   describe 'deployment prepare & update' do
-    let(:redis) { double('Redis').as_null_object }
-    before { allow(Bosh::Director::Config).to receive(:redis).and_return(redis) }
-    let(:logger) { Logging::Logger.new('TestLogger') }
+    let(:event_log) { Bosh::Director::Config.event_log }
 
     before do
       allow(Bosh::Director::Config).to receive(:cloud).and_return(cloud)
@@ -63,11 +61,12 @@ module Bosh::Director::DeploymentPlan
           let(:multi_job_updater) { instance_double('Bosh::Director::DeploymentPlan::SerialMultiJobUpdater', run: nil) }
           let(:assembler) { Assembler.new(deployment_plan, nil, cloud, nil, logger) }
           let(:cloud_config) { nil }
+          let(:runtime_config) { nil }
 
           let(:deployment_plan) do
             planner_factory = Bosh::Director::DeploymentPlan::PlannerFactory.create(logger)
-            manifest = Bosh::Director::Manifest.new(deployment_manifest, nil)
-            deployment_plan = planner_factory.create_from_manifest(manifest, cloud_config, {})
+            manifest = Bosh::Director::Manifest.new(deployment_manifest, nil, nil)
+            deployment_plan = planner_factory.create_from_manifest(manifest, cloud_config, runtime_config, {})
             deployment_plan.bind_models
             deployment_plan
           end

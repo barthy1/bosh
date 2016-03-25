@@ -1,4 +1,5 @@
 require 'spec_helper'
+require 'timecop'
 
 describe Bosh::Director::VmCreator do
 
@@ -17,7 +18,7 @@ describe Bosh::Director::VmCreator do
       get_state: nil
     )
   end
-  let(:network_settings) { BD::DeploymentPlan::NetworkSettings.new(job.name, 'deployment_name', {}, [reservation], {}, availability_zone, 5, 'uuid-1',  BD::DnsManagerProvider.create).to_hash }
+  let(:network_settings) { BD::DeploymentPlan::NetworkSettings.new(job.name, 'deployment_name', {'gateway' => 'name'}, [reservation], {}, availability_zone, 5, 'uuid-1',  BD::DnsManagerProvider.create).to_hash }
   let(:deployment) { Bosh::Director::Models::Deployment.make(name: 'deployment_name') }
   let(:deployment_plan) do
     instance_double(Bosh::Director::DeploymentPlan::Planner, model: deployment, name: 'deployment_name', recreate: false)
@@ -29,7 +30,7 @@ describe Bosh::Director::VmCreator do
   let(:stemcell_model) { Bosh::Director::Models::Stemcell.make(:cid => 'stemcell-id', name: 'fake-stemcell', version: '123') }
   let(:stemcell) do
     stemcell_model
-    stemcell = Bosh::Director::DeploymentPlan::Stemcell.new({'name' => 'fake-stemcell', 'version' => '123'})
+    stemcell = Bosh::Director::DeploymentPlan::Stemcell.parse({'name' => 'fake-stemcell', 'version' => '123'})
     stemcell.add_stemcell_model
     stemcell
   end
@@ -71,6 +72,8 @@ describe Bosh::Director::VmCreator do
     job.stemcell = stemcell
     job.env = env
     job.templates << template
+    job.default_network = {"gateway" => "name"}
+    job.update = BD::DeploymentPlan::UpdateConfig.new({'canaries' => 1, 'max_in_flight' => 1, 'canary_watch_time' => '1000-2000', 'update_watch_time' => '1000-2000'})
     job
   end
 
@@ -105,18 +108,22 @@ describe Bosh::Director::VmCreator do
       ).and_return('new-vm-cid')
 
     allow(Bosh::Director::Config).to receive(:name).and_return('fake-director-name')
+    Timecop.freeze do
+      expect(cloud).to receive(:set_vm_metadata) do |vm_cid, metadata|
+        expect(vm_cid).to eq('new-vm-cid')
+        expect(metadata).to match({
+          deployment: 'deployment_name',
+          created_at: Time.new.getutc.strftime('%Y-%m-%dT%H:%M:%SZ'),
+          job: 'fake-job',
+          index: '5',
+          director: 'fake-director-name',
+          id: instance_model.uuid,
+          name: "fake-job/#{instance_model.uuid}",
+        })
+      end
 
-    expect(cloud).to receive(:set_vm_metadata) do |vm_cid, metadata|
-      expect(vm_cid).to eq('new-vm-cid')
-      expect(metadata).to match({
-        deployment: 'deployment_name',
-        job: 'fake-job',
-        index: '5',
-        director: 'fake-director-name',
-      })
+      subject.create_for_instance_plan(instance_plan, ['fake-disk-cid'])
     end
-
-    subject.create_for_instance_plan(instance_plan, ['fake-disk-cid'])
   end
 
   it 'updates instance job templates with new IP' do
@@ -221,5 +228,59 @@ describe Bosh::Director::VmCreator do
     expect {
       subject.create_for_instance_plan(instance_plan, ['fake-disk-cid'])
     }.to raise_error(Bosh::Clouds::VMCreationFailed)
+  end
+
+  context 'Config.generate_vm_passwords flag is true' do
+    before {
+      Bosh::Director::Config.generate_vm_passwords = true
+    }
+
+    context 'no password is specified' do
+      it 'should generate a random VM password' do
+        expect(cloud).to receive(:create_vm) do |_, _, _, _, _, env|
+          expect(env['bosh']['password'].length).to_not eq(0)
+        end.and_return('new-vm-cid')
+
+        subject.create_for_instance_plan(instance_plan, ['fake-disk-cid'])
+      end
+    end
+
+    context 'password is specified' do
+      let(:env) { Bosh::Director::DeploymentPlan::Env.new({'bosh' => {'password' => 'custom-password'}}) }
+      it 'should generate a random VM password' do
+        expect(cloud).to receive(:create_vm) do |_, _, _, _, _, env|
+          expect(env['bosh']['password']).to eq('custom-password')
+        end.and_return('new-vm-cid')
+
+        subject.create_for_instance_plan(instance_plan, ['fake-disk-cid'])
+      end
+    end
+  end
+
+  context 'Config.generate_vm_passwords flag is false' do
+    before {
+      Bosh::Director::Config.generate_vm_passwords = false
+    }
+
+    context 'no password is specified' do
+      it 'should generate a random VM password' do
+        expect(cloud).to receive(:create_vm) do |_, _, _, _, _, env|
+          expect(env['bosh']).to be_nil
+        end.and_return('new-vm-cid')
+
+        subject.create_for_instance_plan(instance_plan, ['fake-disk-cid'])
+      end
+    end
+
+    context 'password is specified' do
+      let(:env) { Bosh::Director::DeploymentPlan::Env.new({'bosh' => {'password' => 'custom-password'}}) }
+      it 'should generate a random VM password' do
+        expect(cloud).to receive(:create_vm) do |_, _, _, _, _, env|
+          expect(env['bosh']['password']).to eq('custom-password')
+        end.and_return('new-vm-cid')
+
+        subject.create_for_instance_plan(instance_plan, ['fake-disk-cid'])
+      end
+    end
   end
 end

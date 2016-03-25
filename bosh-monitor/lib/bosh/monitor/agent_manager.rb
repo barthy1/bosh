@@ -34,7 +34,7 @@ module Bosh::Monitor
         class_name = name.to_s.split("_").map(&:capitalize).join
         plugin_class = Bosh::Monitor::Plugins.const_get(class_name)
       rescue NameError => e
-        raise PluginError, "Cannot find `#{name}' plugin"
+        raise PluginError, "Cannot find '#{name}' plugin"
       end
 
       plugin_class.new(options)
@@ -124,7 +124,7 @@ module Bosh::Monitor
         return false
       end
 
-      @logger.info("Adding agent #{vm_data['agent_id']} (#{vm_data['job']}/#{vm_data['index']}) to #{deployment_name}...")
+      @logger.info("Adding agent #{vm_data['agent_id']} (#{vm_data['job']}/#{vm_data['id']}) to #{deployment_name}...")
 
       agent_id = vm_data['agent_id']
 
@@ -256,7 +256,7 @@ module Bosh::Monitor
       when "shutdown"
         on_shutdown(agent, message)
       else
-        @logger.warn("No handler found for `#{kind}' event")
+        @logger.warn("No handler found for '#{kind}' event")
       end
 
     rescue Yajl::ParseError => e
@@ -288,7 +288,7 @@ module Bosh::Monitor
     end
 
     def on_shutdown(agent, message)
-      @logger.info("Agent `#{agent.id}' shutting down...")
+      @logger.info("Agent '#{agent.id}' shutting down...")
       remove_agent(agent.id)
     end
 

@@ -2,6 +2,7 @@
 #
 
 require 'bosh/director/models/cloud_config'
+require 'bosh/director/models/runtime_config'
 require 'bosh/director/models/compiled_package'
 require 'bosh/director/models/deployment'
 require 'bosh/director/models/deployment_problem'
@@ -22,6 +23,9 @@ require 'bosh/director/models/template'
 require 'bosh/director/models/user'
 require 'bosh/director/models/persistent_disk'
 require 'bosh/director/models/rendered_templates_archive'
+require 'bosh/director/models/lock'
+require 'delayed_job_sequel'
+require 'bosh/director/models/event'
 
 module Bosh::Director
   module Models

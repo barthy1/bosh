@@ -66,7 +66,7 @@ describe Bosh::Director::DeploymentPlan::DynamicNetwork do
         expect(network.subnets.first.availability_zone_names).to eq(nil)
       end
 
-      it 'raises error when `az` is present on the network spec' do
+      it "raises error when 'az' is present on the network spec" do
         expect {
           BD::DeploymentPlan::DynamicNetwork.parse(
             {
@@ -79,7 +79,7 @@ describe Bosh::Director::DeploymentPlan::DynamicNetwork do
         }.to raise_error(BD::NetworkInvalidProperty, "Network 'foo' must not specify 'az'.")
       end
 
-      it 'raises error when `azs` is present on the network spec' do
+      it "raises error when 'azs' is present on the network spec" do
         expect {
           BD::DeploymentPlan::DynamicNetwork.parse(
             {
@@ -521,7 +521,7 @@ describe Bosh::Director::DeploymentPlan::DynamicNetwork do
 
         expect {
           dynamic_network.validate_reference_from_job!(job_network_spec, 'job-name')
-        }.to raise_error BD::JobStaticIPNotSupportedOnDynamicNetwork, "Job 'job-name' using dynamic network 'dynamic' cannot specify static IP(s)"
+        }.to raise_error BD::JobStaticIPNotSupportedOnDynamicNetwork, "Instance group 'job-name' using dynamic network 'dynamic' cannot specify static IP(s)"
       end
     end
   end

@@ -28,10 +28,6 @@ describe 'director.yml.erb.erb' do
           'address' => '10.10.0.7',
           'port' => 4222
         },
-        'redis' => {
-          'address' => '127.0.0.1', 'port' => 25255, 'password' => 'R3d!S',
-          'loglevel' => 'info',
-        },
         'director' => {
           'name' => 'vpc-bosh-idora',
           'backend_port' => 25556,
@@ -39,10 +35,19 @@ describe 'director.yml.erb.erb' do
           'max_tasks' => 100,
           'max_threads' => 32,
           'enable_snapshots' => true,
+          'enable_post_deploy' => false,
+          'generate_vm_passwords' => false,
+          'remove_dev_tools' => false,
+          'log_access_events_to_syslog' => false,
           'ignore_missing_gateway' => false,
           'disks' => {
             'max_orphaned_age_in_days' => 3,
             'cleanup_schedule' => '0 0,30 * * * * UTC',
+          },
+          'events' => {
+            'record_events' => false,
+            'max_events' => 10000,
+            'cleanup_schedule' => '0 * * * * * UTC'
           },
           'db' => {
             'adapter' => 'mysql2',
@@ -97,6 +102,10 @@ describe 'director.yml.erb.erb' do
       expect(parsed_yaml['trusted_certs']).to eq("test_trusted_certs\nvalue")
     end
 
+    it 'should keep dynamic, COMPONENT-based logging paths' do
+      expect(parsed_yaml['logging']['file']).to eq("/var/vcap/sys/log/director/<%= ENV['COMPONENT'] %>.debug.log")
+    end
+
     context 'when domain name specified without all other dns properties' do
       before do
         deployment_manifest_fragment['properties']['dns'] = {
@@ -140,6 +149,32 @@ describe 'director.yml.erb.erb' do
           'all_the_things' => true
         }
       })
+    end
+
+    context 'events configuration' do
+      context 'when enabled' do
+        before do
+          deployment_manifest_fragment['properties']['director']['events']['record_events'] = true
+        end
+
+        it 'renders correctly' do
+          expect(parsed_yaml['record_events']).to eq(true)
+        end
+
+        it 'is a scheduled task' do
+          expect(parsed_yaml['scheduled_jobs'].map{ |v| v['command'] }).to include('ScheduledEventsCleanup')
+        end
+      end
+
+      context 'when disabled' do
+        it 'renders correctly' do
+          expect(parsed_yaml['record_events']).to eq(false)
+        end
+
+        it 'is a scheduled task' do
+          expect(parsed_yaml['scheduled_jobs'].map{ |v| v['command'] }).to_not include('ScheduledEventsCleanup')
+        end
+      end
     end
   end
 
@@ -713,6 +748,7 @@ describe 'director.yml.erb.erb' do
               'use_ssl' => false,
               'ssl_verify_peer' => false,
               's3_multipart_threshold' => 123,
+              's3_signature_version' => 52,
               's3_port' => 5155,
               'host' => 'myhost.hostland.edu',
               's3_force_path_style' => true,
@@ -730,6 +766,7 @@ describe 'director.yml.erb.erb' do
               'use_ssl' => false,
               'ssl_verify_peer' => false,
               's3_multipart_threshold' => 123,
+              's3_signature_version' => 52,
               'port' => 5155,
               'host' => 'myhost.hostland.edu',
               's3_force_path_style' => true,
@@ -744,6 +781,7 @@ describe 'director.yml.erb.erb' do
               'use_ssl' => false,
               'ssl_verify_peer' => false,
               's3_multipart_threshold' => 123,
+              's3_signature_version' => 52,
               'port' => 5155,
               'host' => 'myhost.hostland.edu',
               's3_force_path_style' => true,
@@ -762,6 +800,7 @@ describe 'director.yml.erb.erb' do
               'use_ssl' => true,
               'ssl_verify_peer' => false,
               's3_multipart_threshold' => 123,
+              's3_signature_version' => 52,
               'port' => 5155,
               'host' => 'myhost.hostland.edu',
               's3_force_path_style' => true,
@@ -779,6 +818,7 @@ describe 'director.yml.erb.erb' do
                 'use_ssl' => false,
                 'ssl_verify_peer' => false,
                 's3_multipart_threshold' => 123,
+                's3_signature_version' => 52,
                 'port' => 5155,
                 'host' => 'myhost.hostland.edu',
                 's3_force_path_style' => true,
@@ -797,6 +837,7 @@ describe 'director.yml.erb.erb' do
                     'use_ssl' => true,
                     'ssl_verify_peer' => true,
                     's3_force_path_style' => false,
+                    's3_signature_version' => 51,
                     's3_multipart_threshold' => 456,
                   }
                 }
@@ -812,6 +853,7 @@ describe 'director.yml.erb.erb' do
                   'ssl_verify_peer' => true,
                   's3_force_path_style' => false,
                   's3_multipart_threshold' => 456,
+                  's3_signature_version' => 51,
                   'port' => 5155,
                   'host' => 'fakehost.example.com',
                   'region' => 'region'

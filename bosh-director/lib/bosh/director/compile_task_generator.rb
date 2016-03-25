@@ -11,9 +11,9 @@ module Bosh::Director
     def generate!(compile_tasks, job, template, package, stemcell)
       # Our assumption here is that package dependency graph
       # has no cycles: this is being enforced on release upload.
-      # Other than that it's a vanilla DFS.
+      # Other than that it's a vanilla Depth-First Search (DFS).
 
-      @logger.info("Checking whether package `#{package.desc}' needs to be compiled for stemcell `#{stemcell.model.desc}'")
+      @logger.info("Checking whether package '#{package.desc}' needs to be compiled for stemcell '#{stemcell.model.desc}'")
       task_key = [package.id, stemcell.id]
       task = compile_tasks[task_key]
 
@@ -23,10 +23,10 @@ module Bosh::Director
       end
 
       release_version = template.release.model
-
-      transitive_dependencies = release_version.transitive_dependencies(package)
-      package_dependency_key = Models::CompiledPackage.create_dependency_key(transitive_dependencies)
-      package_cache_key = Models::CompiledPackage.create_cache_key(package, transitive_dependencies, stemcell.model)
+      package_dependency_manager = PackageDependenciesManager.new(release_version)
+      transitive_dependencies = package_dependency_manager.transitive_dependencies(package)
+      package_dependency_key = KeyGenerator.new.dependency_key_from_models(package, release_version)
+      package_cache_key = Models::CompiledPackage.create_cache_key(package, transitive_dependencies, stemcell.model.sha1)
 
       task = CompileTask.new(package, stemcell, job, package_dependency_key, package_cache_key)
 
@@ -35,10 +35,10 @@ module Bosh::Director
         task.use_compiled_package(compiled_package)
       end
 
-      @logger.info("Processing package `#{package.desc}' dependencies")
-      dependencies = release_version.dependencies(package)
+      @logger.info("Processing package '#{package.desc}' dependencies")
+      dependencies = package_dependency_manager.dependencies(package)
       dependencies.each do |dependency|
-        @logger.info("Package `#{package.desc}' depends on package `#{dependency.desc}'")
+        @logger.info("Package '#{package.desc}' depends on package '#{dependency.desc}'")
         dependency_task = generate!(compile_tasks, job, template, dependency, stemcell)
         task.add_dependency(dependency_task)
       end

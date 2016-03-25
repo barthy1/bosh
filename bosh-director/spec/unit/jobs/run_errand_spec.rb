@@ -13,9 +13,9 @@ module Bosh::Director
       manifest_hash
     end
 
-    describe 'Resque job class expectations' do
+    describe 'DJ job class expectations' do
       let(:job_type) { :run_errand }
-      it_behaves_like 'a Resque job'
+      it_behaves_like 'a DJ job'
     end
 
     describe '#perform' do
@@ -67,7 +67,7 @@ module Bosh::Director
           before { allow(planner).to receive(:job).with('fake-errand-name').and_return(deployment_job) }
 
           context 'when job can run as an errand (usually means lifecycle: errand)' do
-            before { allow(deployment_job).to receive(:can_run_as_errand?).and_return(true) }
+            before { allow(deployment_job).to receive(:is_errand?).and_return(true) }
             before { allow(deployment_job).to receive(:bind_instances) }
 
             context 'when job has at least 1 instance' do
@@ -265,14 +265,14 @@ module Bosh::Director
           end
 
           context "when job cannot run as an errand (e.g. marked as 'lifecycle: service')" do
-            before { allow(deployment_job).to receive(:can_run_as_errand?).and_return(false) }
+            before { allow(deployment_job).to receive(:is_errand?).and_return(false) }
 
             it 'raises an error because non-errand jobs cannot be used with run errand cmd' do
               allow(subject).to receive(:with_deployment_lock).and_yield
 
               expect {
                 subject.perform
-              }.to raise_error(RunErrandError, /Job `fake-errand-name' is not an errand/)
+              }.to raise_error(RunErrandError, /Instance group 'fake-errand-name' is not an errand/)
             end
           end
         end

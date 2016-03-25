@@ -26,6 +26,9 @@ module Bosh::Director
         def perform
           jobs = filtered_jobs
 
+          resolved_problems = 0
+          error_message = nil
+
           begin
             with_deployment_lock(@deployment, :timeout => 0) do
 
@@ -34,10 +37,18 @@ module Bosh::Director
               scanner.scan_vms(jobs)
 
               resolver = ProblemResolver.new(@deployment)
-              resolver.apply_resolutions(resolutions(jobs))
+              resolved_problems, error_message = resolver.apply_resolutions(resolutions(jobs))
 
               'scan and fix complete'
             end
+            if resolved_problems > 0
+              PostDeploymentScriptRunner.run_post_deploys_after_resurrection(@deployment)
+            end
+
+            if error_message
+              raise Bosh::Director::ProblemHandlerError, error_message
+            end
+
           rescue Lock::TimeoutError
             raise 'Unable to get deployment lock, maybe a deployment is in progress. Try again later.'
           end
@@ -46,7 +57,7 @@ module Bosh::Director
         def resolutions(jobs)
           all_resolutions = {}
           jobs.each do |job, index|
-            instance = @instance_manager.find_by_name(@deployment.name, job, index)
+            instance = @instance_manager.find_by_name(@deployment, job, index)
             next if instance.resurrection_paused
             problems = Models::DeploymentProblem.filter(deployment: @deployment, resource_id: instance.id, state: 'open')
             problems.each do |problem|
@@ -63,7 +74,7 @@ module Bosh::Director
           return @jobs if @fix_stateful_jobs
 
           @jobs.reject do |job, index|
-            instance = @instance_manager.find_by_name(@deployment.name, job, index)
+            instance = @instance_manager.find_by_name(@deployment, job, index)
             instance.persistent_disk
           end
         end

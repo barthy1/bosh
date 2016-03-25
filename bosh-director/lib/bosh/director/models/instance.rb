@@ -41,7 +41,8 @@ module Bosh::Director::Models
 
     def cloud_properties_hash
       if cloud_properties.nil?
-        spec['vm_type']['cloud_properties']
+        return {} if spec.nil? || spec['vm_type'].nil?
+        spec['vm_type']['cloud_properties'] || {}
       else
         JSON.parse(cloud_properties)
       end
@@ -59,6 +60,10 @@ module Bosh::Director::Models
 
     def dns_record_names=(list)
       self.dns_records = JSON.dump(list)
+    end
+
+    def name
+      "#{self.job}/#{self.uuid}"
     end
 
     def to_s
