@@ -1,0 +1,56 @@
+#!/usr/bin/env ruby
+
+require 'erb'
+require 'bosh/director'
+
+config_file = nil
+index = nil
+erb = false
+
+begin
+  opts = OptionParser.new do |op|
+    op.on('-c', '--config [ARG]', 'Configuration File') do |opt|
+      config_file = opt
+    end
+
+    op.on('-i', '--index [ARG]', Integer, 'Worker Index') do |opt|
+      index = opt
+    end
+
+    op.on('-e', '--[no-]erb', 'Treat Configuration as ERB Template') do |opt|
+      erb = opt
+    end
+  end
+
+  opts.parse!(ARGV.dup)
+
+  config_file ||= ::File.expand_path('../../config/bosh-director.yml', __FILE__)
+  config = nil
+
+# Is this code even used anymore?
+  if erb
+    class ConfigBindingHelper
+      attr_reader :index
+
+      def initialize(index)
+        @index = index
+      end
+
+      def get_binding
+        binding
+      end
+    end
+
+    template = ERB.new(File.read(config_file), 0, '%<>-')
+    contents = template.result(ConfigBindingHelper.new(index).get_binding)
+    config_hash = Psych.load(contents)
+    config = Bosh::Director::Config.load_hash(config_hash)
+  else
+    config = Bosh::Director::Config.load_file(config_file)
+  end
+  config.db
+
+  worker = Bosh::Director::Worker.new(config, index)
+  worker.prep
+  worker.start
+end
