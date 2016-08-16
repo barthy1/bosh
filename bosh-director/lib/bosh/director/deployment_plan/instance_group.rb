@@ -25,8 +25,7 @@ module Bosh::Director
       # @return [String] Instance group canonical name (mostly for DNS)
       attr_accessor :canonical_name
 
-      # @return [DiskType] Persistent disk type (or nil)
-      attr_accessor :persistent_disk_type
+      attr_accessor :persistent_disk_collection
 
       # @return [DeploymentPlan::ReleaseVersion] Release this instance group belongs to
       attr_accessor :release
@@ -52,7 +51,6 @@ module Bosh::Director
 
       # @return [Hash] Instance group properties
       attr_accessor :properties
-      attr_accessor :uninterpolated_properties
 
       # @return [Hash<String, DeploymentPlan::Package] Packages included on the instance group
       attr_accessor :packages
@@ -76,7 +74,6 @@ module Bosh::Director
       attr_accessor :availability_zones
 
       attr_accessor :all_properties
-      attr_accessor :all_uninterpolated_properties
 
       attr_accessor :networks
 
@@ -99,9 +96,7 @@ module Bosh::Director
         @release = nil
         @templates = []
         @all_properties = nil # All properties available to instance group
-        @all_uninterpolated_properties = nil # All uninterpolated properties available to instance group
         @properties = nil # Actual instance group properties
-        @uninterpolated_properties = nil # Actual instance group uninterpolated properties
 
         @instances = []
         @desired_instances = []
@@ -118,6 +113,7 @@ module Bosh::Director
         @instance_plans = []
 
         @did_change = false
+        @persistent_disk_collection = nil
       end
 
       def self.is_legacy_spec?(instance_group_spec)
@@ -261,7 +257,6 @@ module Bosh::Director
       # property definitions in DB).
       def bind_properties
         @properties = extract_jobs_properties(@all_properties)
-        @uninterpolated_properties = extract_jobs_uninterpolated_properties(@all_uninterpolated_properties)
       end
 
       def validate_package_names_do_not_collide!
@@ -321,11 +316,6 @@ module Bosh::Director
         @lifecycle == 'errand'
       end
 
-      # reverse compatibility: translate disk size into a disk pool
-      def persistent_disk=(disk_size)
-        @persistent_disk_type = DiskType.new(SecureRandom.uuid, disk_size, {})
-      end
-
       def instance_plans_with_missing_vms
         needed_instance_plans.reject do |instance_plan|
           instance_plan.instance.vm_created? || instance_plan.instance.state == 'detached'
@@ -357,6 +347,10 @@ module Bosh::Director
         @templates.any? { |job| job.name == name && job.release.name == release }
       end
 
+      def has_os?(os)
+        @stemcell.os == os
+      end
+
       private
 
       def extract_jobs_properties(all_properties)
@@ -375,28 +369,6 @@ module Bosh::Director
           else
             template.properties.each_pair do |name, definition|
               copy_property(result[template.name], all_properties, name, definition["default"])
-            end
-          end
-        end
-
-        result
-      end
-
-      def extract_jobs_uninterpolated_properties(all_uninterpolated_properties)
-        result = {}
-        @templates.each do |template|
-          # If a template has properties that were defined in the deployment manifest
-          # for that template only, then we need to bind only these properties, and not
-          # make them available to other templates in the same deployment instance group. That can
-          # be done by checking @template_scoped_properties variable of each
-          # template
-          result[template.name] ||= {}
-          if template.has_template_scoped_properties(@name)
-            template.bind_template_scoped_uninterpolated_properties(@name)
-            result[template.name] = template.template_scoped_uninterpolated_properties[@name]
-          else
-            template.properties.each_pair do |name, definition|
-              copy_property(result[template.name], all_uninterpolated_properties, name, definition["default"])
             end
           end
         end

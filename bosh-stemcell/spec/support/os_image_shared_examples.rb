@@ -117,7 +117,7 @@ shared_examples_for 'every OS image' do
       it { should be_file }
 
       it 'should reload rsyslog on rotate' do
-        should contain 'reload rsyslog >/dev/null 2>&1 || true'
+        should contain '/sbin/reload rsyslog >/dev/null 2>&1 || true'
       end
 
       it 'should not restart rsyslog on rotate so that logs are not lost' do
@@ -255,6 +255,16 @@ shared_examples_for 'every OS image' do
       describe command('grep -R nullok /etc/pam.d') do
         it { should return_exit_status(1) }
         its (:stdout) { should eq('') }
+      end
+    end
+
+    context 'restrict access to the su command CIS-9.5' do
+      describe command('grep "^\s*auth\s*required\s*pam_wheel.so\s*use_uid" /etc/pam.d/su') do
+        it { should return_exit_status(0)}
+      end
+      describe user('vcap') do
+        it { should exist }
+        it { should belong_to_group 'sudo' }
       end
     end
 
