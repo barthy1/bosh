@@ -64,8 +64,8 @@ module Bosh
             'recreate' => !!options['recreate'],
             'skip_drain' => options['skip_drain'],
             'job_states' => options['job_states'] || {},
-            'max_in_flight' => parse_numerical_arguments(options['max_in_flight']),
-            'canaries' => parse_numerical_arguments(options['canaries'])
+            'max_in_flight' => validate_and_get_argument(options['max_in_flight'], 'max_in_flight'),
+            'canaries' => validate_and_get_argument(options['canaries'], 'canaries')
           }
 
           @logger.info('Creating deployment plan')
@@ -100,11 +100,11 @@ module Bosh
         def process_links(deployment)
           errors = []
 
-          deployment.instance_groups.each do |current_job|
-            current_job.templates.each do |template|
-              if template.link_infos.has_key?(current_job.name) && template.link_infos[current_job.name].has_key?('consumes')
-                template.link_infos[current_job.name]['consumes'].each do |name, source|
-                  link_path = LinkPath.new(deployment, current_job.name, template.name)
+          deployment.instance_groups.each do |current_instance_group|
+            current_instance_group.templates.each do |current_job|
+              if current_job.link_infos.has_key?(current_instance_group.name) && current_job.link_infos[current_instance_group.name].has_key?('consumes')
+                current_job.link_infos[current_instance_group.name]['consumes'].each do |name, source|
+                  link_path = LinkPath.new(deployment, current_instance_group.name, current_job.name)
 
                   begin
                     link_path.parse(source)
@@ -113,26 +113,20 @@ module Bosh
                   end
 
                   if !link_path.skip
-                    current_job.add_link_path(template.name, name, link_path)
+                    current_instance_group.add_link_path(current_job.name, name, link_path)
                   end
                 end
               end
 
-              ## Choose between using template-scoped and other props.
-              ## if job manifest had a "properties key" in the template block
-              if template.template_scoped_properties.has_key?(current_job.name)
-                scoped_properties = template.template_scoped_properties[current_job.name]
-              else
-                scoped_properties = current_job.all_properties || {}
-              end
+              template_properties = current_job.properties[current_instance_group.name]
 
-              if template.link_infos.has_key?(current_job.name) && template.link_infos[current_job.name].has_key?('provides')
-                template.link_infos[current_job.name]['provides'].each do |link_name, provided_link|
+              if current_job.link_infos.has_key?(current_instance_group.name) && current_job.link_infos[current_instance_group.name].has_key?('provides')
+                current_job.link_infos[current_instance_group.name]['provides'].each do |link_name, provided_link|
                   if provided_link['link_properties_exported']
                     ## Get default values for this job
-                    default_properties = get_default_properties(deployment, template)
+                    default_properties = get_default_properties(deployment, current_job)
 
-                    provided_link['mapped_properties'] = process_link_properties(scoped_properties, default_properties, provided_link['link_properties_exported'], errors)
+                    provided_link['mapped_properties'] = process_link_properties(template_properties, default_properties, provided_link['link_properties_exported'], errors)
                   end
                 end
               end
@@ -229,17 +223,9 @@ module Bosh
           return mapped_properties
         end
 
-        def parse_numerical_arguments arg
-          case arg
-            when nil
-              nil
-            when /%/
-              raise 'percentages not yet supported for max in flight and canary cli overrides'
-            when /\A[-+]?[0-9]+\z/
-              arg.to_i
-            else
-              raise 'cannot be converted to integer'
-          end
+        def validate_and_get_argument arg, type
+          raise "#{type} value should be integer or percent" unless arg =~/^\d+%$|\A[-+]?[0-9]+\z/ || arg == nil
+          arg
         end
       end
     end

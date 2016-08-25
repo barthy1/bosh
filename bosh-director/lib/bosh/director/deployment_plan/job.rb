@@ -2,7 +2,7 @@ require 'bosh/template/property_helper'
 
 module Bosh::Director
   module DeploymentPlan
-    class Template
+    class Job
       include Bosh::Template::PropertyHelper
       include ValidationHelper
 
@@ -13,7 +13,7 @@ module Bosh::Director
       attr_reader :package_models
 
       attr_reader :link_infos
-      attr_reader :template_scoped_properties
+      attr_reader :properties
 
       # @param [DeploymentPlan::ReleaseVersion] release Release version
       # @param [String] name Template name
@@ -31,7 +31,7 @@ module Bosh::Director
         # section of the deployment manifest. This way if a template is used
         # in multiple deployment jobs, the properties will not be shared across
         # jobs
-        @template_scoped_properties = {}
+        @properties = {}
       end
 
       # Looks up template model and its package models in DB
@@ -91,10 +91,6 @@ module Bosh::Director
         present_model.logs
       end
 
-      # @return [Hash]
-      def properties
-        present_model.properties
-      end
 
       # return [Array]
       def model_consumed_links
@@ -187,25 +183,22 @@ module Bosh::Director
         return @link_infos.fetch(job_name, {}).fetch('provides', {}).fetch(link_name, {})
       end
 
-      def add_template_scoped_properties(template_scoped_properties, deployment_instance_group_name)
-        @template_scoped_properties[deployment_instance_group_name] = template_scoped_properties
+      def add_properties(properties, instance_group_name)
+        @properties[instance_group_name] = properties
       end
 
-      def has_template_scoped_properties(deployment_instance_group_name)
-        return !@template_scoped_properties[deployment_instance_group_name].nil?
-      end
-
-      def bind_template_scoped_properties(deployment_instance_group_name)
-        bound_template_scoped_properties = {}
-        properties.each_pair do |name, definition|
+      def bind_properties(instance_group_name)
+        bound_properties = {}
+        @properties[instance_group_name] ||= {}
+        release_job_spec_properties.each_pair do |name, definition|
           copy_property(
-              bound_template_scoped_properties,
-              @template_scoped_properties[deployment_instance_group_name],
+              bound_properties,
+              @properties[instance_group_name],
               name,
-              definition["default"]
+              definition['default']
           )
         end
-        @template_scoped_properties[deployment_instance_group_name] = bound_template_scoped_properties
+        @properties[instance_group_name] = bound_properties
       end
 
       private
@@ -257,6 +250,12 @@ module Bosh::Director
         end
         @model
       end
+
+      # @return [Hash]
+      def release_job_spec_properties
+        present_model.properties
+      end
+
     end
   end
 end

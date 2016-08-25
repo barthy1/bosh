@@ -69,7 +69,7 @@ module Bosh::Director
           deployment_release_version = deployment.release(addon_job_hash['release'])
           deployment_release_version.bind_model
 
-          addon_job_object = DeploymentPlan::Template.new(deployment_release_version, addon_job_hash['name'])
+          addon_job_object = DeploymentPlan::Job.new(deployment_release_version, addon_job_hash['name'])
           addon_job_object.bind_models
           deployment_jobs = fetch_deployment_jobs(deployment, addon_job_hash['name'])
 
@@ -88,9 +88,9 @@ module Bosh::Director
 
       def add_properties(addon_job_hash, addon_job_object, instance_group_name)
         if addon_job_hash['properties']
-          addon_job_object.add_template_scoped_properties(addon_job_hash['properties'], instance_group_name)
+          addon_job_object.add_properties(addon_job_hash['properties'], instance_group_name)
         else
-          addon_job_object.add_template_scoped_properties(@addon_level_properties, instance_group_name)
+          addon_job_object.add_properties(@addon_level_properties, instance_group_name)
         end
       end
 

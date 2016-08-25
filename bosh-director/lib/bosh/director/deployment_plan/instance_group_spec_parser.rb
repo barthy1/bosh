@@ -26,12 +26,15 @@ module Bosh::Director
         parse_release
         validate_jobs
 
-        parse_legacy_template
-        parse_jobs
+
+        merged_global_and_instance_group_properties = extract_global_and_instance_group_properties
+
+        parse_legacy_template(merged_global_and_instance_group_properties)
+        parse_jobs(merged_global_and_instance_group_properties)
 
         check_job_uniqueness
         parse_disks
-        parse_properties
+
         parse_resource_pool
         check_remove_dev_tools
 
@@ -96,8 +99,8 @@ module Bosh::Director
       end
 
       # legacy template parsing
-      def parse_legacy_template
-        template_names = safe_property(@instance_group_spec, "template", optional: true)
+      def parse_legacy_template(merged_global_and_instance_group_properties)
+        template_names = safe_property(@instance_group_spec, 'template', optional: true)
         if template_names
           if template_names.is_a?(Array)
             @event_log.warn_deprecated(
@@ -115,12 +118,17 @@ module Bosh::Director
           end
 
           Array(template_names).each do |template_name|
-            @instance_group.templates << @instance_group.release.get_or_create_template(template_name)
+            current_template = @instance_group.release.get_or_create_template(template_name)
+            current_template.add_properties(
+              merged_global_and_instance_group_properties,
+              @instance_group.name
+            )
+            @instance_group.templates << current_template
           end
         end
       end
 
-      def parse_jobs
+      def parse_jobs(merged_global_and_instance_group_properties)
         legacy_jobs = safe_property(@instance_group_spec, 'templates', class: Array, optional: true)
         jobs = safe_property(@instance_group_spec, 'jobs', class: Array, optional: true)
 
@@ -188,12 +196,15 @@ module Bosh::Director
               template.add_link_from_manifest(@instance_group.name, 'consumes', link_name, source)
             end
 
-            if job_spec.has_key?("properties")
-              template.add_template_scoped_properties(
-                  safe_property(job_spec, 'properties', class: Hash, optional: true, default: nil),
-                  @instance_group.name
-              )
+            if job_spec.has_key?('properties')
+              template_properties = safe_property(job_spec, 'properties', class: Hash, optional: true, default: {})
+            else
+              template_properties = merged_global_and_instance_group_properties
             end
+            template.add_properties(
+              template_properties,
+              @instance_group.name
+            )
 
             @instance_group.templates << template
           end
@@ -230,84 +241,78 @@ module Bosh::Director
           disk_source = 'pool'
         end
 
-        case {disk_size: disk_size.nil?, disk_name: disk_name.nil?, persistent_disks: persistent_disks.nil?}
+        persistent_disk_collection = PersistentDiskCollection.new(@logger)
 
-          when {disk_size: false, disk_name: true, persistent_disks: true}
-            if disk_size < 0
-              raise InstanceGroupInvalidPersistentDisk,
-                "Instance group '#{@instance_group.name}' references an invalid persistent disk size '#{disk_size}'"
-            else
-              persistent_disk_collection = PersistentDiskCollection.new(@logger, multiple_disks: false)
-              persistent_disk_collection.add_by_disk_size(disk_size)
-              @instance_group.persistent_disk_collection = persistent_disk_collection
-            end
+        if disk_size
+          if disk_size < 0
+            raise InstanceGroupInvalidPersistentDisk,
+              "Instance group '#{@instance_group.name}' references an invalid persistent disk size '#{disk_size}'"
+          end
 
-          when {disk_size: true, disk_name: false, persistent_disks: true}
-            disk_type = @deployment.disk_type(disk_name)
+          persistent_disk_collection.add_by_disk_size(disk_size)
+        end
+
+        if disk_name
+          disk_type = @deployment.disk_type(disk_name)
+          if disk_type.nil?
+            raise InstanceGroupUnknownDiskType,
+              "Instance group '#{@instance_group.name}' references an unknown disk #{disk_source} '#{disk_name}'"
+          end
+
+          persistent_disk_collection.add_by_disk_type(disk_type)
+        end
+
+        if persistent_disks
+          unique_names = persistent_disks.map { |persistent_disk| persistent_disk['name'] }.uniq
+          if unique_names.size != persistent_disks.size
+            raise InstanceGroupInvalidPersistentDisk,
+              "Instance group '#{@instance_group.name}' persistent_disks's section contains duplicate names"
+          end
+
+          persistent_disks.each do |persistent_disk|
+            disk_type_name = persistent_disk['type']
+            disk_type = @deployment.disk_type(disk_type_name)
             if disk_type.nil?
               raise InstanceGroupUnknownDiskType,
-                "Instance group '#{@instance_group.name}' references an unknown disk #{disk_source} '#{disk_name}'"
-            else
-              persistent_disk_collection = PersistentDiskCollection.new(@logger, multiple_disks: false)
-              persistent_disk_collection.add_by_disk_type(disk_type)
+                "Instance group '#{@instance_group.name}' persistent_disks's section references an unknown disk type '#{disk_type_name}'"
             end
 
-          when {disk_name: true, disk_size: true, persistent_disks: false}
-            persistent_disk_collection = PersistentDiskCollection.new(@logger, multiple_disks: true)
-
-            unique_names = persistent_disks.map { |persistent_disk| persistent_disk['name'] }.uniq
-            if unique_names.size != persistent_disks.size
+            persistent_disk_name = persistent_disk['name']
+            if persistent_disk_name.blank?
               raise InstanceGroupInvalidPersistentDisk,
-                "Instance group '#{@instance_group.name}' persistent_disks's section contains duplicate names"
+                "Instance group '#{@instance_group.name}' persistent_disks's section contains a disk with no name"
             end
 
-            persistent_disks.each do |persistent_disk|
-              disk_type_name = persistent_disk['type']
-              disk_type = @deployment.disk_type(disk_type_name)
-              if disk_type.nil?
-                raise InstanceGroupUnknownDiskType,
-                  "Instance group '#{@instance_group.name}' persistent_disks's section references an unknown disk type '#{disk_type_name}'"
-              end
-
-              persistent_disk_name = persistent_disk['name']
-              if persistent_disk_name.blank?
-                raise InstanceGroupInvalidPersistentDisk,
-                  "Instance group '#{@instance_group.name}' persistent_disks's section contains a disk with no name"
-              end
-
-              persistent_disk_collection.add_by_disk_name_and_type(persistent_disk_name, disk_type)
-            end
-
-          else
-            persistent_disk_collection = PersistentDiskCollection.new(@logger, multiple_disks: false)
+            persistent_disk_collection.add_by_disk_name_and_type(persistent_disk_name, disk_type)
+          end
         end
 
         @instance_group.persistent_disk_collection = persistent_disk_collection
       end
 
-      def parse_properties
+      def extract_global_and_instance_group_properties
         # Manifest can contain global and per-job properties section
-        job_properties = safe_property(@instance_group_spec, "properties", :class => Hash, :optional => true, :default => {})
+        instance_group_properties = safe_property(@instance_group_spec, 'properties', :class => Hash, :optional => true, :default => {})
 
-        @instance_group.all_properties = @deployment.properties.recursive_merge(job_properties)
+        merged_properties = @deployment.properties.recursive_merge(instance_group_properties)
 
-        mappings = safe_property(@instance_group_spec, "property_mappings", :class => Hash, :default => {})
+        mappings = safe_property(@instance_group_spec, 'property_mappings', :class => Hash, :default => {})
 
         mappings.each_pair do |to, from|
-          resolved = lookup_property(@instance_group.all_properties, from)
+          resolved = lookup_property(merged_properties, from)
 
           if resolved.nil?
             raise InstanceGroupInvalidPropertyMapping,
                   "Cannot satisfy property mapping '#{to}: #{from}', as '#{from}' is not in deployment properties"
           end
 
-          @instance_group.all_properties[to] = resolved
+          merged_properties[to] = resolved
         end
+        merged_properties
       end
 
       def parse_resource_pool
         env_hash = safe_property(@instance_group_spec, 'env', class: Hash, :default => {})
-        uninterpolated_env_hash = safe_property(@instance_group_spec, 'uninterpolated_env', class: Hash, :default => {})
 
         resource_pool_name = safe_property(@instance_group_spec, "resource_pool", class: String, optional: true)
 
@@ -334,7 +339,6 @@ module Bosh::Director
 
           if env_hash.empty?
             env_hash = resource_pool.env
-            uninterpolated_env_hash = resource_pool.uninterpolated_env
           end
         else
           vm_type_name = safe_property(@instance_group_spec, 'vm_type', class: String)
@@ -358,7 +362,7 @@ module Bosh::Director
         @instance_group.vm_type = vm_type
         @instance_group.vm_extensions = vm_extensions
         @instance_group.stemcell = stemcell
-        @instance_group.env = Env.new(env_hash, uninterpolated_env_hash)
+        @instance_group.env = Env.new(env_hash)
       end
 
       def parse_update_config(parse_options)

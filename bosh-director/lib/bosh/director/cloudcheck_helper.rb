@@ -69,7 +69,7 @@ module Bosh::Director
 
       vm_creator.create_for_instance_plan(
         instance_plan_to_create,
-        Array(instance_model.persistent_disk_cid)
+        Array(instance_model.managed_persistent_disk_cid)
       )
 
       dns_manager = DnsManagerProvider.create
@@ -108,7 +108,7 @@ module Bosh::Director
 
     def create_instance_plan(instance_model)
       vm_type = DeploymentPlan::VmType.new(instance_model.spec['vm_type'])
-      env = DeploymentPlan::Env.new(instance_model.vm_env, instance_model.vm_uninterpolated_env)
+      env = DeploymentPlan::Env.new(instance_model.vm_env)
       stemcell = DeploymentPlan::Stemcell.parse(instance_model.spec['stemcell'])
       stemcell.add_stemcell_model
       availability_zone = DeploymentPlan::AvailabilityZone.new(instance_model.availability_zone, instance_model.cloud_properties_hash)
@@ -165,7 +165,7 @@ module Bosh::Director
     end
 
     def vm_creator
-      disk_manager = SingleDiskManager.new(cloud, @logger)
+      disk_manager = DiskManager.new(cloud, @logger)
       agent_broadcaster = AgentBroadcaster.new
       job_renderer = JobRenderer.create
       @vm_creator ||= VmCreator.new(cloud, @logger, vm_deleter, disk_manager, job_renderer, agent_broadcaster)

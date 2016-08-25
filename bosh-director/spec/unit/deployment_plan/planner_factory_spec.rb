@@ -65,6 +65,22 @@ module Bosh
             expect(hybrid_manifest_hash['releases'].first['version']).to eq('0.1-dev')
           end
 
+          context 'plan_options' do
+            let(:plan_options) { {'canaries' => '10%', 'max_in_flight' => '3'} }
+            it 'uses plan options' do
+              deployment = planner
+              expect(deployment.update.canaries_before_calculation).to eq('10%')
+              expect(deployment.update.max_in_flight_before_calculation).to eq('3')
+            end
+
+            context 'when option value is incorrect' do
+              let(:plan_options) { {'canaries' => 'wrong'} }
+              it 'raises an error' do
+                expect { planner }.to raise_error 'canaries value should be integer or percent'
+              end
+            end
+          end
+
           it 'logs the migrated manifests' do
             allow(deployment_manifest_migrator).to receive(:migrate) do |manifest, cloud_config|
               manifest.raw_manifest_hash.merge!({'name' => 'migrated_name'})
@@ -234,7 +250,7 @@ LOGMESSAGE
                 end
 
                 let(:template1) do
-                  instance_double('Bosh::Director::DeploymentPlan::Template',
+                  instance_double('Bosh::Director::DeploymentPlan::Job',
                       {
                           name: 'provides_template',
                           link_infos:{
@@ -307,8 +323,7 @@ LOGMESSAGE
                 it 'should have a link_path' do
                   allow(DeploymentPlan::InstanceGroup).to receive(:parse).and_return(job1)
                   allow(template1).to receive(:release).and_return(release)
-                  allow(template1).to receive(:template_scoped_properties).and_return({})
-                  allow(job1).to receive(:all_properties).and_return({})
+                  allow(template1).to receive(:properties).and_return({})
                   expect(DeploymentPlan::LinkPath).to receive(:new).and_return(link_path)
                   expect(link_path).to receive(:parse)
                   expect(job1).to receive(:add_link_path).with("provides_template", 'link_name', link_path)
@@ -319,8 +334,7 @@ LOGMESSAGE
                 it 'should not add a link path if no links found for optional ones, and it should not fail' do
                   allow(DeploymentPlan::InstanceGroup).to receive(:parse).and_return(job1)
                   allow(template1).to receive(:release).and_return(release)
-                  allow(template1).to receive(:template_scoped_properties).and_return({})
-                  allow(job1).to receive(:all_properties).and_return({})
+                  allow(template1).to receive(:properties).and_return({})
                   expect(DeploymentPlan::LinkPath).to receive(:new).and_return(skipped_link_path)
                   expect(skipped_link_path).to receive(:parse)
                   expect(job1).to_not receive(:add_link_path)
@@ -331,8 +345,7 @@ LOGMESSAGE
                   it 'should not throw an error' do
                     allow(DeploymentPlan::InstanceGroup).to receive(:parse).and_return(job1)
                     allow(template1).to receive(:release).and_return(release)
-                    allow(template1).to receive(:template_scoped_properties).and_return({})
-                    allow(job1).to receive(:all_properties).and_return({})
+                    allow(template1).to receive(:properties).and_return({})
                     allow(DeploymentPlan::LinkPath).to receive(:new).and_return(skipped_link_path)
                     allow(skipped_link_path).to receive(:parse)
 
@@ -349,8 +362,7 @@ LOGMESSAGE
                   it 'should not throw an error' do
                     allow(DeploymentPlan::InstanceGroup).to receive(:parse).and_return(job1)
                     allow(template1).to receive(:release).and_return(release)
-                    allow(template1).to receive(:template_scoped_properties).and_return({})
-                    allow(job1).to receive(:all_properties).and_return({})
+                    allow(template1).to receive(:properties).and_return({})
                     allow(DeploymentPlan::LinkPath).to receive(:new).and_return(skipped_link_path)
                     allow(skipped_link_path).to receive(:parse)
 
