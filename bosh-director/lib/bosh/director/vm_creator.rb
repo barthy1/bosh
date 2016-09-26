@@ -14,9 +14,11 @@ module Bosh::Director
       @disk_manager = disk_manager
       @job_renderer = job_renderer
       @agent_broadcaster = agent_broadcaster
+
+      @config_server_client_factory = Bosh::Director::ConfigServer::ClientFactory.create(@logger)
     end
 
-    def create_for_instance_plans(instance_plans, ip_provider)
+    def create_for_instance_plans(instance_plans, ip_provider, tags={})
       return @logger.info('No missing vms to create') if instance_plans.empty?
 
       total = instance_plans.size
@@ -29,7 +31,7 @@ module Bosh::Director
               event_log_stage.advance_and_track(instance.model.to_s) do
                 @logger.info('Creating missing VM')
                 disks = [instance.model.managed_persistent_disk_cid].compact
-                create_for_instance_plan(instance_plan, disks)
+                create_for_instance_plan(instance_plan, disks, tags)
                 instance_plan.network_plans
                     .select(&:obsolete?)
                     .each do |network_plan|
@@ -44,7 +46,7 @@ module Bosh::Director
       end
     end
 
-    def create_for_instance_plan(instance_plan, disks)
+    def create_for_instance_plan(instance_plan, disks, tags)
       instance = instance_plan.instance
       instance_model = instance.model
       @logger.info('Creating VM')
@@ -59,7 +61,7 @@ module Bosh::Director
       )
 
       begin
-        VmMetadataUpdater.build.update(instance_model, {})
+        VmMetadataUpdater.build.update(instance_model, tags)
         agent_client = AgentClient.with_vm_credentials_and_agent_id(instance_model.credentials, instance_model.agent_id)
         agent_client.wait_until_ready
 
@@ -71,7 +73,9 @@ module Bosh::Director
           @agent_broadcaster.delete_arp_entries(instance_model.vm_cid, ip_addresses)
         end
 
-        instance.update_trusted_certs
+        @disk_manager.attach_disks_if_needed(instance_plan)
+
+        instance.update_instance_settings
         instance.update_cloud_properties!
       rescue Exception => e
         @logger.error("Failed to create/contact VM #{instance_model.vm_cid}: #{e.inspect}")
@@ -82,8 +86,6 @@ module Bosh::Director
         end
         raise e
       end
-
-      @disk_manager.attach_disks_if_needed(instance_plan)
 
       apply_initial_vm_state(instance_plan)
 
@@ -121,7 +123,9 @@ module Bosh::Director
     def create(instance_model, stemcell, cloud_properties, network_settings, disks, env)
       parent_id = add_event(instance_model.deployment.name, instance_model.name, 'create')
       agent_id = self.class.generate_agent_id
-      env = resolve_uninterpolated_values(Bosh::Common::DeepCopy.copy(env))
+
+      config_server_client = @config_server_client_factory.create_client
+      env = config_server_client.interpolate(Bosh::Common::DeepCopy.copy(env))
 
       options = {:agent_id => agent_id}
 
@@ -140,7 +144,16 @@ module Bosh::Director
 
       if instance_model.job
         env['bosh'] ||= {}
-        env['bosh']['group_name'] = instance_model.job
+        env['bosh']['group'] = Canonicalizer.canonicalize("#{Bosh::Director::Config.name}-#{instance_model.deployment.name}-#{instance_model.job}")
+        env['bosh']['groups'] = [
+          Bosh::Director::Config.name,
+          instance_model.deployment.name,
+          instance_model.job,
+          "#{Bosh::Director::Config.name}-#{instance_model.deployment.name}",
+          "#{instance_model.deployment.name}-#{instance_model.job}",
+          "#{Bosh::Director::Config.name}-#{instance_model.deployment.name}-#{instance_model.job}"
+        ]
+        env['bosh']['groups'].map! { |name| Canonicalizer.canonicalize(name) }
       end
 
       count = 0
@@ -170,12 +183,5 @@ module Bosh::Director
     def self.generate_agent_id
       SecureRandom.uuid
     end
-
-    def resolve_uninterpolated_values(to_be_resolved_hash)
-      return to_be_resolved_hash unless Bosh::Director::Config.config_server_enabled
-      Bosh::Director::ConfigServer::ConfigParser.parse(to_be_resolved_hash)
-    end
-
-    private
   end
 end

@@ -71,7 +71,13 @@ module Bosh::Director
       manifest_hash = manifest_hash.nil? ? {} : manifest_hash
 
       raw_manifest_hash = Bosh::Common::DeepCopy.copy(manifest_hash)
-      hybrid_manifest_hash = Bosh::Director::DeploymentManifestResolver.resolve_manifest(manifest_hash, resolve_interpolation)
+
+      if resolve_interpolation
+        config_server_client = Bosh::Director::ConfigServer::ClientFactory.create(Config.logger).create_client
+        hybrid_manifest_hash = config_server_client.interpolate_deployment_manifest(manifest_hash)
+      else
+        hybrid_manifest_hash = Bosh::Common::DeepCopy.copy(manifest_hash)
+      end
 
       new(hybrid_manifest_hash, raw_manifest_hash, cloud_config_hash, hybrid_runtime_config_hash, raw_runtime_config_hash)
     end

@@ -40,8 +40,11 @@ module Bosh::Director
       # Stemcells in deployment by alias
       attr_reader :stemcells
 
+      # Tags in deployment by alias
+      attr_reader :tags
+
       # Job instances from the old manifest that are not in the new manifest
-      attr_reader :unneeded_instances
+      attr_reader :unneeded_instance_plans
 
       # @return [Boolean] Indicates whether VMs should be recreated
       attr_reader :recreate
@@ -67,11 +70,13 @@ module Bosh::Director
         @instance_groups = []
         @instance_groups_name_index = {}
         @instance_groups_canonical_name_index = Set.new
+        @tags = options.fetch('tags', {})
 
         @unneeded_vms = []
-        @unneeded_instances = []
+        @unneeded_instance_plans = []
 
         @recreate = !!options['recreate']
+        @fix = !!options['fix']
 
         @link_spec = {}
         @skip_drain = SkipDrain.new(options['skip_drain'])
@@ -101,7 +106,7 @@ module Bosh::Director
         Canonicalizer.canonicalize(@name)
       end
 
-      def bind_models(skip_links_binding = false)
+      def bind_models(options = {})
         stemcell_manager = Api::StemcellManager.new
         dns_manager = DnsManagerProvider.create
         assembler = DeploymentPlan::Assembler.new(
@@ -112,7 +117,9 @@ module Bosh::Director
           @logger
         )
 
-        assembler.bind_models(skip_links_binding)
+        options[:fix] = @fix
+        options[:tags] = @tags
+        assembler.bind_models(options)
       end
 
       def compile_packages
@@ -203,8 +210,12 @@ module Bosh::Director
         end
       end
 
-      def mark_instance_for_deletion(instance)
-        @unneeded_instances << instance
+      def mark_instance_plans_for_deletion(instance_plans)
+        @unneeded_instance_plans = instance_plans
+      end
+
+      def unneeded_instances
+        @unneeded_instance_plans.map(&:existing_instance)
       end
 
       # Adds a instance_group by name
@@ -288,12 +299,12 @@ module Bosh::Director
       def validate_packages
         release_manager = Bosh::Director::Api::ReleaseManager.new
         validator = DeploymentPlan::PackageValidator.new(@logger)
-        instance_groups.each do |job|
-          job.templates.each do |template|
-            release_model = release_manager.find_by_name(template.release.name)
-            release_version_model = release_manager.find_version(release_model, template.release.version)
+        instance_groups.each do |instance_group|
+          instance_group.jobs.each do |job|
+            release_model = release_manager.find_by_name(job.release.name)
+            release_version_model = release_manager.find_version(release_model, job.release.version)
 
-            validator.validate(release_version_model, job.stemcell.model)
+            validator.validate(release_version_model, instance_group.stemcell.model)
           end
         end
         validator.handle_faults

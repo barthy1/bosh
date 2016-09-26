@@ -10,7 +10,8 @@ module Bosh::Director
 
     def update_persistent_disk(instance_plan)
       @logger.info('Updating persistent disk')
-      check_persistent_disk(instance_plan)
+
+      check_persistent_disk(instance_plan) unless has_multiple_persistent_disks?(instance_plan)
 
       return unless instance_plan.persistent_disk_changed?
 
@@ -19,6 +20,8 @@ module Bosh::Director
       old_disks = instance_model.active_persistent_disks
 
       changed_disk_pairs = new_disks.changed_disk_pairs(old_disks)
+
+      new_disk_unmanaged_models = []
 
       changed_disk_pairs.each do |disk_pair|
         old_disk_model = disk_pair[:old].model unless disk_pair[:old].nil?
@@ -33,6 +36,10 @@ module Bosh::Director
 
           if new_disk.managed? && old_disk_model
             migrate_disk(instance_model, new_disk_model, old_disk_model)
+          end
+
+          if !new_disk.managed?
+            new_disk_unmanaged_models << new_disk_model
           end
         end
 
@@ -188,6 +195,10 @@ module Bosh::Director
       unmount_and_detach_disk(disk)
       @orphan_disk_manager.orphan_disk(disk)
       raise e
+    end
+
+    def has_multiple_persistent_disks?(instance_plan)
+      !instance_plan.desired_instance.instance_group.persistent_disk_collection.non_managed_disks.empty?
     end
 
     def unmount_and_detach_disk(disk)

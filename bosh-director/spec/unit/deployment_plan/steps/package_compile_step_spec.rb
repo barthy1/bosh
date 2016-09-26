@@ -52,6 +52,16 @@ module Bosh::Director
     let(:net) { {'default' => {'network_name' =>{'property' => 'settings'}}} }
     let(:event_manager) {Api::EventManager.new(true)}
     let(:update_job) {instance_double(Bosh::Director::Jobs::UpdateDeployment, username: 'user', task_id: 42, event_manager: event_manager)}
+    let(:expected_groups) {
+      [
+        'fake-director-name',
+        'mycloud',
+        'compilation-deadbeef',
+        'fake-director-name-mycloud',
+        'mycloud-compilation-deadbeef',
+        'fake-director-name-mycloud-compilation-deadbeef'
+      ]
+    }
 
     before do
       allow(ThreadPool).to receive_messages(new: thread_pool) # Using threads for real, even accidentally, makes debugging a nightmare
@@ -70,6 +80,7 @@ module Bosh::Director
       allow(Config).to receive(:use_compiled_package_cache?).and_return(false)
 
       allow(Config).to receive(:current_job).and_return(update_job)
+      allow(Config).to receive(:name).and_return('fake-director-name')
       @all_packages = []
     end
 
@@ -127,7 +138,7 @@ module Bosh::Director
       @j_dea = instance_double('Bosh::Director::DeploymentPlan::InstanceGroup',
         name: 'dea',
         release: @release,
-        templates: [@t_dea, @t_warden],
+        jobs: [@t_dea, @t_warden],
         vm_type: vm_type_large,
         stemcell: @stemcell_a
       )
@@ -135,7 +146,7 @@ module Bosh::Director
       @j_router = instance_double('Bosh::Director::DeploymentPlan::InstanceGroup',
         name: 'router',
         release: @release,
-        templates: [@t_nginx, @t_router, @t_warden],
+        jobs: [@t_nginx, @t_router, @t_warden],
         vm_type: vm_type_small,
         stemcell: @stemcell_b
       )
@@ -143,7 +154,7 @@ module Bosh::Director
       @j_deps_ruby = instance_double('Bosh::Director::DeploymentPlan::InstanceGroup',
         name: 'needs_ruby',
         release: @release,
-        templates: [@t_deps_ruby],
+        jobs: [@t_deps_ruby],
         vm_type: vm_type_small,
         stemcell: @stemcell_b
       )
@@ -276,7 +287,7 @@ module Bosh::Director
         @j_dea = instance_double('Bosh::Director::DeploymentPlan::InstanceGroup',
           name: 'dea',
           release: @release,
-          templates: [@t_dea, @t_warden],
+          jobs: [@t_dea, @t_warden],
           vm_type: @vm_type_large,
           stemcell: @stemcell_b
         )
@@ -430,12 +441,12 @@ module Bosh::Director
         release_version_model = Models::ReleaseVersion.make
         release_version = instance_double('Bosh::Director::DeploymentPlan::ReleaseVersion', name: 'release_name', model: release_version_model)
         stemcell = make_stemcell
-        job = instance_double('Bosh::Director::DeploymentPlan::InstanceGroup', release: release_version, name: 'job_name', stemcell: stemcell)
+        instance_group = instance_double('Bosh::Director::DeploymentPlan::InstanceGroup', release: release_version, name: 'job_name', stemcell: stemcell)
         package_model = Models::Package.make(name: 'foobarbaz', dependency_set: [], fingerprint: 'deadbeef', blobstore_id: 'fake_id')
-        template = instance_double('Bosh::Director::DeploymentPlan::Job', release: release_version, package_models: [package_model], name: 'fake_template')
-        allow(job).to receive_messages(templates: [template])
+        job = instance_double('Bosh::Director::DeploymentPlan::Job', release: release_version, package_models: [package_model], name: 'fake_template')
+        allow(instance_group).to receive_messages(jobs: [job])
 
-        compiler = DeploymentPlan::Steps::PackageCompileStep.new([job], compilation_config, compilation_instance_pool, logger, director_job)
+        compiler = DeploymentPlan::Steps::PackageCompileStep.new([instance_group], compilation_config, compilation_instance_pool, logger, director_job)
 
         expect {
           compiler.perform
@@ -521,7 +532,7 @@ module Bosh::Director
         agent = instance_double('Bosh::Director::AgentClient')
 
         expect(cloud).to receive(:create_vm).
-          with(instance_of(String), @stemcell_a.model.cid, {}, net, [], {'bosh' => {'group_name' => 'compilation-deadbeef'}}).
+          with(instance_of(String), @stemcell_a.model.cid, {}, net, [], {'bosh' => {'group' => 'fake-director-name-mycloud-compilation-deadbeef', 'groups' => expected_groups}}).
           and_return(vm_cid)
 
         allow(AgentClient).to receive(:with_vm_credentials_and_agent_id).and_return(agent)
@@ -563,7 +574,7 @@ module Bosh::Director
           'Bosh::Director::DeploymentPlan::InstanceGroup',
           name: 'job-with-one-package',
           release: release,
-          templates: [job],
+          jobs: [job],
           vm_type: {},
           stemcell: stemcell,
         )

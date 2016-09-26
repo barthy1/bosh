@@ -83,8 +83,9 @@ module Bosh::Director
         recreated = false
         if needs_recreate?(instance_plan)
           @logger.debug('Failed to update in place. Recreating VM')
-          @disk_manager.unmount_disk_for(instance_plan)
-          @vm_recreator.recreate_vm(instance_plan, nil)
+          @disk_manager.unmount_disk_for(instance_plan) unless instance_plan.needs_to_fix?
+          tags = instance_plan.tags
+          @vm_recreator.recreate_vm(instance_plan, nil, tags)
           recreated = true
         end
 
@@ -94,10 +95,7 @@ module Bosh::Director
         @disk_manager.update_persistent_disk(instance_plan)
 
         unless recreated
-          if instance.trusted_certs_changed?
-            @logger.debug('Updating trusted certs')
-            instance.update_trusted_certs
-          end
+          instance.update_instance_settings
         end
 
         cleaner = RenderedJobTemplatesCleaner.new(instance.model, @blobstore, @logger)

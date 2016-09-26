@@ -41,6 +41,15 @@ module Bosh::Director::Models
       end
     end
 
+    def tags
+      tags = {}
+
+      if manifest
+        tags = YAML.load(manifest)['tags'] || {}
+      end
+
+      tags
+    end
   end
 
   Deployment.plugin :association_dependencies

@@ -16,7 +16,7 @@ shared_examples_for 'All Stemcells' do
     end
 
     describe command 'ls -l /etc/ssh/*_key*' do
-      its(:stderr) {should match /No such file or directory/}
+      its(:stderr) { should match /No such file or directory/ }
     end
   end
 
@@ -48,6 +48,20 @@ shared_examples_for 'All Stemcells' do
     end
   end
 
+  describe file('/var/vcap/micro_bosh/data/cache') do
+    it('should still be created') { should be_directory }
+  end
+
+  context 'libyaml should be installed' do
+    describe command('test -L /usr/lib64/libyaml.so') do
+      it { should return_exit_status(0) }
+    end
+
+    describe command('readlink -e /usr/lib64/libyaml.so') do
+      it { should return_exit_status(0) }
+    end
+  end
+
   context 'Library files must have mode 0755 or less permissive (stig: V-38465)' do
     describe command("find -L /lib /lib64 /usr/lib $( [ ! -e /usr/lib64 ] || echo '/usr/lib64' ) -perm /022 -type f") do
       its (:stdout) { should eq('') }
@@ -72,9 +86,17 @@ shared_examples_for 'All Stemcells' do
     end
   end
 
-  describe 'logrotate should rotate every 15 minutes' do
-    describe file('/etc/cron.d/logrotate') do
-      it { should contain '0,15,30,45 * * * * root /usr/bin/logrotate-cron' }
+  describe 'logrotate' do
+    describe 'should rotate every 15 minutes' do
+      describe file('/etc/cron.d/logrotate') do
+        it { should contain '0,15,30,45 * * * * root /usr/bin/logrotate-cron' }
+      end
+    end
+
+    describe 'default su directive' do
+      describe file('/etc/logrotate.d/default_su_directive') do
+        it { should contain 'su root root' }
+      end
     end
   end
 end

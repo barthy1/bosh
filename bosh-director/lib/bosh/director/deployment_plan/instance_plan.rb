@@ -1,3 +1,5 @@
+require 'common/deep_copy'
+
 module Bosh
   module Director
     module DeploymentPlan
@@ -11,9 +13,10 @@ module Bosh
           @recreate_deployment = attrs.fetch(:recreate_deployment, false)
           @logger = attrs.fetch(:logger, Config.logger)
           @dns_manager = DnsManagerProvider.create
+          @tags = attrs.fetch(:tags, {})
         end
 
-        attr_reader :desired_instance, :existing_instance, :instance, :skip_drain, :recreate_deployment
+        attr_reader :desired_instance, :existing_instance, :instance, :skip_drain, :recreate_deployment, :tags
 
         attr_accessor :network_plans
 
@@ -22,6 +25,11 @@ module Bosh
         #   differ from the ones provided by the VM
         def changed?
           !changes.empty?
+        end
+
+        def needs_to_fix?
+          return false if @instance.nil?
+          @instance.current_job_state == 'unresponsive'
         end
 
         ##
@@ -78,6 +86,9 @@ module Bosh
           if @recreate_deployment
             @logger.debug("#{__method__} job deployment is configured with \"recreate\" state")
             true
+          elsif needs_to_fix?
+            @logger.debug("#{__method__} instance should be recreated because of unresponsive agent")
+            true
           else
             @instance.virtual_state == 'recreate'
           end
@@ -115,6 +126,8 @@ module Bosh
             @logger.debug("Instance '#{instance}' needs to be detached")
             return true
           end
+
+          return true if needs_to_fix?
 
           if instance.state == 'stopped' && instance.current_job_state == 'running' ||
             instance.state == 'started' && instance.current_job_state != 'running'
@@ -231,7 +244,7 @@ module Bosh
         end
 
         def templates
-          @desired_instance.instance_group.templates
+          @desired_instance.instance_group.jobs
         end
 
         def job_changed?
@@ -275,7 +288,18 @@ module Bosh
 
         def network_settings_changed?(old_network_settings, new_network_settings)
           return false if old_network_settings == {}
-          old_network_settings != new_network_settings
+          remove_dns_record_name_from_network_settings(old_network_settings) != new_network_settings
+        end
+
+        def remove_dns_record_name_from_network_settings(network_settings)
+          return network_settings if network_settings.nil?
+
+          modified_network_settings = Bosh::Common::DeepCopy.copy(network_settings)
+
+          modified_network_settings.each do |name, network_setting|
+            network_setting.delete_if{|key, value| key == "dns_record_name"}
+          end
+          modified_network_settings
         end
 
         def env_changed?

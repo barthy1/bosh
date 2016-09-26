@@ -25,13 +25,16 @@ module Bosh::Director
         @logger = Config.logger
         @link_infos = {}
 
-        # This hash will contain the properties specific to this template,
-        # it will be a hash where the keys are the deployment job name, and
-        # the value of each key will be the properties defined in template
-        # section of the deployment manifest. This way if a template is used
-        # in multiple deployment jobs, the properties will not be shared across
-        # jobs
+        # This hash will contain the properties specific to this job,
+        # it will be a hash where the keys are the deployment instance groups name, and
+        # the value of each key will be the properties defined in job
+        # section of the deployment manifest. This way if a job is used
+        # in multiple instance groups, the properties will not be shared across
+        # instance groups
         @properties = {}
+
+        config_server_client_factory = Bosh::Director::ConfigServer::ClientFactory.create(@logger)
+        @config_server_client = config_server_client_factory.create_client
       end
 
       # Looks up template model and its package models in DB
@@ -94,7 +97,7 @@ module Bosh::Director
 
       # return [Array]
       def model_consumed_links
-        present_model.consumes.to_a.map { |l| TemplateLink.parse("consumes", l) }
+        present_model.consumes.to_a.map { |l| TemplateLink.parse('consumes', l) }
       end
 
       # return [Array]
@@ -104,20 +107,24 @@ module Bosh::Director
 
       # return [Array]
       def consumed_links(job_name)
-        if @link_infos[job_name] != nil && @link_infos[job_name]["consumes"]  != nil
-          @link_infos[job_name]["consumes"].map { |_, link_info| TemplateLink.parse("consumes", link_info) }
-        else
-          return []
+        consumes_links_for_instance_group_name(job_name).map do |_, link_info|
+          TemplateLink.parse('consumes', link_info)
         end
       end
 
       # return [Array]
       def provided_links(job_name)
-        if @link_infos[job_name] != nil && @link_infos[job_name]["provides"] != nil
-          @link_infos[job_name]["provides"].map { |_, link_info| TemplateLink.parse("provides", link_info) }
-        else
-          return []
+        provides_links_for_instance_group_name(job_name).map do |_, link_info|
+          TemplateLink.parse('provides', link_info)
         end
+      end
+
+      def consumes_links_for_instance_group_name(instance_group_name)
+        links_of_kind_for_instance_group_name(instance_group_name, 'consumes')
+      end
+
+      def provides_links_for_instance_group_name(instance_group_name)
+        links_of_kind_for_instance_group_name(instance_group_name, 'provides')
       end
 
       def add_link_from_release(job_name, kind, link_name, source)
@@ -187,16 +194,22 @@ module Bosh::Director
         @properties[instance_group_name] = properties
       end
 
-      def bind_properties(instance_group_name)
+      def bind_properties(instance_group_name, options = {})
         bound_properties = {}
         @properties[instance_group_name] ||= {}
+
         release_job_spec_properties.each_pair do |name, definition|
-          copy_property(
-              bound_properties,
-              @properties[instance_group_name],
-              name,
-              definition['default']
+          validate_properties_format(@properties[instance_group_name], name)
+
+          provided_property_value = lookup_property(@properties[instance_group_name], name)
+          property_value_to_use = @config_server_client.prepare_and_get_property(
+            provided_property_value,
+            definition['default'],
+            definition['type'],
+            options
           )
+
+          set_property(bound_properties, name, property_value_to_use)
         end
         @properties[instance_group_name] = bound_properties
       end
@@ -256,6 +269,12 @@ module Bosh::Director
         present_model.properties
       end
 
+      def links_of_kind_for_instance_group_name(instance_group_name, kind)
+        if link_infos.has_key?(instance_group_name) && link_infos[instance_group_name].has_key?(kind)
+          return link_infos[instance_group_name][kind]
+        end
+        return []
+      end
     end
   end
 end

@@ -55,7 +55,7 @@ module Bosh::Director
 
         export_release_job = create_job_with_all_the_templates_so_everything_compiles(release_version_model, release, deployment_plan_stemcell)
         planner.add_instance_group(export_release_job)
-        planner.bind_models(true)
+        planner.bind_models({:should_bind_links=>false, :should_bind_properties=>false})
 
         lock_timeout = 15 * 60 # 15 minutes
 
@@ -126,7 +126,7 @@ module Bosh::Director
         instance_group.name = 'dummy-job-for-compilation'
         instance_group.stemcell = deployment_plan_stemcell
         release_version_model.templates.map do |template|
-          instance_group.templates << release.get_or_create_template(template.name)
+          instance_group.jobs << release.get_or_create_template(template.name)
         end
 
         instance_group

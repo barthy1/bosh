@@ -8,6 +8,7 @@ module Bosh::Director::DeploymentPlan
     let(:packages) { {'pkg' => {'name' => 'package', 'version' => '1.0'}} }
     let(:properties) { {'key' => 'value'} }
     let(:links) { {'link_name' => {'stuff' => 'foo'}} }
+    let(:lifecycle) { InstanceGroup::DEFAULT_LIFECYCLE_PROFILE }
     let(:network_spec) do
       {'name' => 'default', 'subnets' => [{'cloud_properties' => {'foo' => 'bar'}, 'az' => 'foo-az'}]}
     end
@@ -30,6 +31,7 @@ module Bosh::Director::DeploymentPlan
         compilation?: false,
         update_spec: {},
         properties: properties,
+        lifecycle: lifecycle,
       )
     }
     let(:index) { 0 }
@@ -100,7 +102,10 @@ module Bosh::Director::DeploymentPlan
     end
 
     describe '#template_spec' do
-      context 'when properties placeholders are present' do
+      context 'properties interpolation' do
+        let(:client_factory) { double(Bosh::Director::ConfigServer::ClientFactory) }
+        let(:config_server_client) { double(Bosh::Director::ConfigServer::EnabledClient) }
+
         let(:properties) do
           {
             'smurf_1' => '((smurf_placeholder_1))',
@@ -125,54 +130,42 @@ module Bosh::Director::DeploymentPlan
           }
         end
 
-        context 'when config server is enabled' do
-          let(:resolved_properties) do
-            {
-              'smurf_1' => 'lazy smurf',
-              'smurf_2' => 'happy smurf'
-            }
-          end
-
-          let(:resolved_links) do
-            {
-              'link_1' => {
-                'networks' => 'foo',
-                'properties' => {
-                  'smurf' => 'strong smurf'
-                }
-              },
-              'link_2' => {
-                'netwroks' => 'foo2',
-                'properties' => {
-                  'smurf' => 'sleepy smurf'
-                }
-              }
-            }
-          end
-
-          before do
-            allow(Bosh::Director::Config).to receive(:config_server_enabled).and_return(true)
-          end
-
-          it 'resolves properties and links properties' do
-            expect(Bosh::Director::ConfigServer::ConfigParser).to receive(:parse).with(properties).and_return(resolved_properties)
-            expect(Bosh::Director::ConfigServer::ConfigParser).to receive(:parse).with(links).and_return(resolved_links)
-
-            spec = instance_spec.as_template_spec
-            expect(spec['properties']).to eq(resolved_properties)
-            expect(spec['links']).to eq(resolved_links)
-          end
+        let(:resolved_properties) do
+          {
+            'smurf_1' => 'lazy smurf',
+            'smurf_2' => 'happy smurf'
+          }
         end
 
-        context 'when config server is disabled' do
-          before do
-            allow(Bosh::Director::Config).to receive(:config_server_enabled).and_return(false)
-          end
+        let(:resolved_links) do
+          {
+            'link_1' => {
+              'networks' => 'foo',
+              'properties' => {
+                'smurf' => 'strong smurf'
+              }
+            },
+            'link_2' => {
+              'netwroks' => 'foo2',
+              'properties' => {
+                'smurf' => 'sleepy smurf'
+              }
+            }
+          }
+        end
 
-          it 'does not resolve properties' do
-            spec = instance_spec.as_template_spec
-            expect(spec['properties']).to eq(properties)
-          end
+        before do
+          allow(Bosh::Director::ConfigServer::ClientFactory).to receive(:create).and_return(client_factory)
+          allow(client_factory).to receive(:create_client).and_return(config_server_client)
+        end
+
+        it 'resolves properties and links properties' do
+          expect(config_server_client).to receive(:interpolate).with(properties).and_return(resolved_properties)
+          expect(config_server_client).to receive(:interpolate).with(links).and_return(resolved_links)
+
+          spec = instance_spec.as_template_spec
+          expect(spec['properties']).to eq(resolved_properties)
+          expect(spec['links']).to eq(resolved_links)
         end
       end
 
@@ -215,6 +208,7 @@ module Bosh::Director::DeploymentPlan
           expect(spec['bootstrap']).to eq(true)
           expect(spec['resource_pool']).to eq('fake-vm-type')
           expect(spec['address']).to eq('192.168.0.10')
+          expect(spec['ip']).to eq('192.168.0.10')
         end
       end
 
@@ -248,6 +242,7 @@ module Bosh::Director::DeploymentPlan
             expect(spec['bootstrap']).to eq(true)
             expect(spec['resource_pool']).to eq('fake-vm-type')
             expect(spec['address']).to eq('uuid-1.fake-job.default.fake-deployment.bosh')
+            expect(spec['ip']).to eq(nil)
           end
         end
         context 'when vm has network ip assigned' do
@@ -291,6 +286,27 @@ module Bosh::Director::DeploymentPlan
             expect(spec['bootstrap']).to eq(true)
             expect(spec['resource_pool']).to eq('fake-vm-type')
             expect(spec['address']).to eq('uuid-1.fake-job.default.fake-deployment.bosh')
+            expect(spec['ip']).to eq('192.0.2.19')
+          end
+        end
+      end
+    end
+    describe '#full_spec' do
+      context 'when CompilationJobs' do
+        let(:lifecycle) { nil }
+        context 'lifecycle is not set' do
+          it "contains 'nil' for 'lifecycle'" do
+            expect(instance_spec.full_spec['lifecycle']).to be_nil
+          end
+        end
+      end
+
+      InstanceGroup::VALID_LIFECYCLE_PROFILES.each do |lifecycle_value|
+        context "when 'lifecycle' is set to '#{lifecycle_value}'" do
+          let(:lifecycle) { lifecycle_value }
+
+          it "contains '#{lifecycle_value}' for 'lifecycle'" do
+            expect(instance_spec.full_spec['lifecycle']).to eq(lifecycle_value)
           end
         end
       end

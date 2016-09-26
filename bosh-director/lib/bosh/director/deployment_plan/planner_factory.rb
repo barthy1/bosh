@@ -12,6 +12,8 @@ module Bosh
       end
 
       class PlannerFactory
+        include ValidationHelper
+
         def self.create(logger)
           deployment_manifest_migrator = Bosh::Director::DeploymentPlan::ManifestMigrator.new
           manifest_validator = Bosh::Director::DeploymentPlan::ManifestValidator.new
@@ -62,10 +64,12 @@ module Bosh
 
           plan_options = {
             'recreate' => !!options['recreate'],
+            'fix' => !!options['fix'],
             'skip_drain' => options['skip_drain'],
             'job_states' => options['job_states'] || {},
             'max_in_flight' => validate_and_get_argument(options['max_in_flight'], 'max_in_flight'),
-            'canaries' => validate_and_get_argument(options['canaries'], 'canaries')
+            'canaries' => validate_and_get_argument(options['canaries'], 'canaries'),
+            'tags' => parse_tags(migrated_hybrid_manifest_hash),
           }
 
           @logger.info('Creating deployment plan')
@@ -97,37 +101,45 @@ module Bosh
           deployment
         end
 
+        def parse_tags(manifest_hash)
+          tags = {}
+
+          if manifest_hash.has_key?('tags')
+            safe_property(manifest_hash, 'tags', :class => Hash).each_pair do |key, value|
+              tags[key] = value
+            end
+          end
+
+          tags
+        end
+
         def process_links(deployment)
           errors = []
 
           deployment.instance_groups.each do |current_instance_group|
-            current_instance_group.templates.each do |current_job|
-              if current_job.link_infos.has_key?(current_instance_group.name) && current_job.link_infos[current_instance_group.name].has_key?('consumes')
-                current_job.link_infos[current_instance_group.name]['consumes'].each do |name, source|
-                  link_path = LinkPath.new(deployment, current_instance_group.name, current_job.name)
+            current_instance_group.jobs.each do |current_job|
+              current_job.consumes_links_for_instance_group_name(current_instance_group.name).each do |name, source|
+                link_path = LinkPath.new(deployment.name, deployment.instance_groups, current_instance_group.name, current_job.name)
 
-                  begin
-                    link_path.parse(source)
-                  rescue Exception => e
-                    errors.push e
-                  end
+                begin
+                  link_path.parse(source)
+                rescue Exception => e
+                  errors.push e
+                end
 
-                  if !link_path.skip
-                    current_instance_group.add_link_path(current_job.name, name, link_path)
-                  end
+                if !link_path.skip
+                  current_instance_group.add_link_path(current_job.name, name, link_path)
                 end
               end
 
               template_properties = current_job.properties[current_instance_group.name]
 
-              if current_job.link_infos.has_key?(current_instance_group.name) && current_job.link_infos[current_instance_group.name].has_key?('provides')
-                current_job.link_infos[current_instance_group.name]['provides'].each do |link_name, provided_link|
-                  if provided_link['link_properties_exported']
-                    ## Get default values for this job
-                    default_properties = get_default_properties(deployment, current_job)
+              current_job.provides_links_for_instance_group_name(current_instance_group.name).each do |link_name, provided_link|
+                if provided_link['link_properties_exported']
+                  ## Get default values for this job
+                  default_properties = get_default_properties(deployment, current_job)
 
-                    provided_link['mapped_properties'] = process_link_properties(template_properties, default_properties, provided_link['link_properties_exported'], errors)
-                  end
+                  provided_link['mapped_properties'] = process_link_properties(template_properties, default_properties, provided_link['link_properties_exported'], errors)
                 end
               end
             end

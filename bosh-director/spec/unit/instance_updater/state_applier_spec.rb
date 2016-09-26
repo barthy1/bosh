@@ -36,9 +36,10 @@ module Bosh::Director
         is_errand?: false,
         link_spec: {},
         compilation?: false,
-        templates: [],
+        jobs: [],
         update_spec: update_config.to_hash,
         properties: {},
+        lifecycle: DeploymentPlan::InstanceGroup::DEFAULT_LIFECYCLE_PROFILE,
       )
     end
     let(:update_config) do

@@ -3,10 +3,9 @@ module Bosh::Director
     # @param [Bosh::Director::DeploymentPlan::Planner] deployment_plan
     # @param [Bosh::Director::DeploymentPlan::Job] job
     # @param [Bosh::Director::JobRenderer] job_renderer
-    def initialize(deployment_plan, job, links_resolver, disk_manager)
+    def initialize(deployment_plan, job, disk_manager)
       @deployment_plan = deployment_plan
       @job = job
-      @links_resolver = links_resolver
 
       @logger = Config.logger
       @event_log = Config.event_log
@@ -43,7 +42,7 @@ module Bosh::Director
       end
 
       @logger.info("Found #{instance_plans.size} instances to update")
-      event_log_stage = @event_log.begin_stage('Updating job', instance_plans.size, [ @job.name ])
+      event_log_stage = @event_log.begin_stage('Updating instance', instance_plans.size, [ @job.name ])
 
       ordered_azs = []
       instance_plans.each do | instance_plan |

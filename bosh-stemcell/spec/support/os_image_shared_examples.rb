@@ -123,7 +123,7 @@ shared_examples_for 'every OS image' do
       it { should be_file }
 
       it 'should reload rsyslog on rotate' do
-        should contain '/sbin/reload rsyslog >/dev/null 2>&1 || true'
+        should contain 'sudo kill -SIGHUP $(cat /var/run/rsyslogd.pid)'
       end
 
       it 'should not restart rsyslog on rotate so that logs are not lost' do
@@ -176,13 +176,6 @@ shared_examples_for 'every OS image' do
   context 'auditd should be installed but not enabled (stig: V-38628) (stig: V-38631) (stig: V-38632)' do
     describe service('auditd') do
       # Agent is responsible for starting auditd
-      it { should_not be_enabled }
-    end
-  end
-
-  context 'rsyslog should be installed but not enabled' do
-    describe service('rsyslog') do
-      # Agent is responsible for starting rsyslog
       it { should_not be_enabled }
     end
   end
@@ -480,6 +473,27 @@ shared_examples_for 'every OS image' do
     context file('/etc/sysctl.d/60-bosh-sysctl.conf') do
       its (:content) { should match /^net\.ipv6\.conf\.all\.disable_ipv6=1$/ }
       its (:content) { should match /^net\.ipv6\.conf\.default\.disable_ipv6=1$/ }
+    end
+  end
+
+  describe 'tcp keepalive values' do
+    context file('/etc/sysctl.d/60-bosh-sysctl.conf') do
+      its (:content) { should match /^net\.ipv4\.tcp_keepalive_time=120$/ }
+      its (:content) { should match /^net\.ipv4\.tcp_keepalive_intvl=30$/ }
+      its (:content) { should match /^net\.ipv4\.tcp_keepalive_probes=8$/ }
+    end
+  end
+
+  describe 'root_maxkeys and maxkeys' do
+    context file('/etc/sysctl.d/60-bosh-sysctl.conf') do
+      its (:content) { should match /^kernel\.keys\.root_maxkeys=1000000$/ }
+      its (:content) { should match /^kernel\.keys\.maxkeys=1000000$/ }
+    end
+  end
+
+  describe 'dmesg_restrict' do
+    context file('/etc/sysctl.d/60-bosh-sysctl.conf') do
+      its (:content) { should match /^kernel\.dmesg_restrict\=1$/ }
     end
   end
 

@@ -53,6 +53,11 @@ module Bosh::Director
           }
         end
 
+        it 'sets deployment name to instance group' do
+          instance_group = parsed_instance_group
+          expect(instance_group.deployment_name).to eq('fake-deployment')
+        end
+
         describe 'name key' do
           it 'parses name' do
             instance_group = parsed_instance_group
@@ -360,7 +365,7 @@ module Bosh::Director
                                               .and_return(rel_ver)
 
                   allow(provides_job).to receive(:provided_links).and_return([provides_link])
-                  allow(provides_instance_group).to receive(:templates).and_return([provides_job])
+                  allow(provides_instance_group).to receive(:jobs).and_return([provides_job])
                   allow(deployment_plan).to receive(:instance_groups).and_return([provides_instance_group])
 
                   allow(rel_ver).to receive(:get_or_create_template)

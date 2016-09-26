@@ -9,8 +9,10 @@ source $base_dir/lib/prelude_bosh.bash
 # Add configuration files
 cp $assets_dir/rsyslog.conf $chroot/etc/rsyslog.conf
 
-rm -rf $chroot/etc/init/rsyslog.conf
-
+# configure upstart to start rsyslog if its config dir exists
+if [ -d $chroot/etc/init ]; then
+  cp $assets_dir/rsyslog_upstart.conf $chroot/etc/init/rsyslog.conf
+fi
 
 cp $assets_dir/rsyslog_logrotate.conf $chroot/etc/logrotate.d/rsyslog
 
@@ -54,14 +56,20 @@ done
 # init.d configuration is different for each OS
 if [ -f $chroot/etc/debian_version ] # Ubuntu
 then
-  run_in_bosh_chroot $chroot "update-rc.d rsyslog disable"
+  run_in_bosh_chroot $chroot "
+    ln -sf /lib/init/upstart-job /etc/init.d/rsyslog
+    update-rc.d rsyslog defaults
+  "
 
   if is_ppc64le; then
     sed -i "s@/dev/xconsole@/dev/console@g" $chroot/etc/rsyslog.d/50-default.conf
   fi
 elif [ -f $chroot/etc/redhat-release ] # Centos or RHEL
 then
-  run_in_bosh_chroot $chroot "systemctl disable rsyslog.service"
+  mkdir -p $chroot/etc/systemd/system/rsyslog.service.d
+  cp -f $assets_dir/rsyslog_override.conf $chroot/etc/systemd/system/rsyslog.service.d/rsyslog_override.conf
+  cp -f $assets_dir/systemd_mountchecker.service  $chroot/etc/systemd/system/mountchecker.service
+  run_in_bosh_chroot $chroot "systemctl enable rsyslog.service"
 elif [ -f $chroot/etc/photon-release ] # PhotonOS
 then
   sed -i "s@/dev/xconsole@/dev/console@g" $chroot/etc/rsyslog.d/50-default.conf

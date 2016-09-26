@@ -40,7 +40,7 @@ module Bosh::Director
       def parse_stemcells
         if @deployment_manifest.has_key?('stemcells')
           safe_property(@deployment_manifest, 'stemcells', :class => Array).each do |stemcell_hash|
-            alias_val = safe_property(stemcell_hash, 'alias', :class=> String)
+            alias_val = safe_property(stemcell_hash, 'alias', :class => String)
             if @deployment.stemcells.has_key?(alias_val)
               raise StemcellAliasAlreadyExists, "Duplicate stemcell alias '#{alias_val}'"
             end

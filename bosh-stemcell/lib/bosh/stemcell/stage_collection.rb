@@ -31,6 +31,7 @@ module Bosh::Stemcell
 
     def agent_stages
       [
+        :bosh_libyaml,
         :bosh_ruby,
         :bosh_go_agent,
         :bosh_micro_go,
@@ -172,6 +173,7 @@ module Bosh::Stemcell
         :system_azure_network,
         :system_azure_wala,
         :system_parameters,
+        :enable_udf_module,
         :bosh_clean,
         :bosh_harden,
         :bosh_azure_agent_settings,
@@ -186,7 +188,6 @@ module Bosh::Stemcell
           :system_network,
           :system_softlayer_open_iscsi,
           :system_softlayer_multipath_tools,
-          :disable_blank_passwords,
           :system_parameters,
           :bosh_clean,
           :bosh_harden,
