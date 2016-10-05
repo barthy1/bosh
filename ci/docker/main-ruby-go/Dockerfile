@@ -1,4 +1,4 @@
-FROM ubuntu:14.04
+FROM ppc64le/ubuntu:14.04
 
 RUN locale-gen en_US.UTF-8
 RUN dpkg-reconfigure locales

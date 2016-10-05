@@ -31,7 +31,14 @@ install_ruby() {
     local sha=$2
 
     echo "Installing ruby $version..."
-    ruby-install --sha256 "$sha" ruby "$version"
+
+    if [ "`uname -m`" == "ppc64le" ]; then
+        OPTS="-- --build=powerpc64le-linux-gnu"
+    else
+        OPTS=""
+    fi
+
+    ruby-install --sha256 "$sha" ruby "$version" $OPTS
 
     source /etc/profile.d/chruby.sh
 

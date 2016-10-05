@@ -1,0 +1,77 @@
+---
+jobs:
+  - name: start-job
+    serial: true
+    plan:
+      - get: bosh-src
+        trigger: false
+
+  - name: build-ubuntu-trusty
+    plan:
+      - get: bosh-src
+        trigger: true
+        passed:
+          - start-job
+      - get: version
+        resource: ubuntu-trusty-version
+        params:
+          bump: minor
+      - get: os-image-stemcell-builder
+      - put: ubuntu-trusty-version
+        params:
+          file: version/number
+      - task: build
+        image: os-image-stemcell-builder
+        file: bosh-src/ci/pipelines/os-images-new/tasks/build.yml
+        privileged: true
+        params:
+          OPERATING_SYSTEM_NAME:      ubuntu
+          OPERATING_SYSTEM_VERSION:   trusty
+      - put: ubuntu-trusty-tarball
+        params:
+          file: os-image/ubuntu-trusty-*.tgz
+
+
+resources:
+  - name: bosh-src
+    type: git
+    source:
+      uri: {{bosh_src_url}}
+      branch: {{stemcell-branch}}
+
+  #
+  # ubuntu-trusty
+  #
+  - name: os-image-stemcell-builder
+    type: docker-image
+    source:
+      repository: 140.211.168.97:5000/os-image-stemcell-builder
+      insecure_registries: ["140.211.168.97:5000"]
+      username: {{username}}
+      password: {{password}}
+
+  - name: ubuntu-trusty-version
+    type: semver
+    source:
+      driver: s3
+      key: ubuntu-trusty-version
+      bucket: {{osimage_bucket}}
+      access_key_id: {{osimage_aws_access_key}}
+      secret_access_key: {{osimage_aws_secret_key}}
+
+  - name: ubuntu-trusty-tarball
+    type: s3
+    source:
+      bucket: {{osimage_bucket}}
+      regexp: ubuntu-trusty/ubuntu-trusty-(.+).tgz
+      access_key_id: {{osimage_aws_access_key}}
+      secret_access_key: {{osimage_aws_secret_key}}
+
+resource_types:
+- name: semver
+  type: docker-image
+  source:
+    repository: 140.211.168.97:5000/semver-resource
+    insecure_registries: ["140.211.168.97:5000"]
+    username: {{username}}
+    password: {{password}}

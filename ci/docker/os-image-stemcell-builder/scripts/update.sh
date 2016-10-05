@@ -1,7 +1,7 @@
 #!/bin/bash
 
 set -ex
-
+ if [ `uname -m` != "ppc64le" ]; then
 cat > /etc/apt/sources.list <<EOS
 deb http://us.archive.ubuntu.com/ubuntu/ trusty main restricted
 deb-src http://us.archive.ubuntu.com/ubuntu/ trusty main restricted
@@ -28,7 +28,7 @@ deb-src http://us.archive.ubuntu.com/ubuntu/ trusty multiverse
 deb http://us.archive.ubuntu.com/ubuntu/ trusty-updates multiverse
 deb-src http://us.archive.ubuntu.com/ubuntu/ trusty-updates multiverse
 EOS
-
+fi
 apt-get update
 apt-get -y upgrade; apt-get clean
 
@@ -61,13 +61,13 @@ apt-get -y install g++ git-core make
 apt-get -y install libmysqlclient-dev libpq-dev libsqlite3-dev libxml2-dev libxslt-dev
 
 # vSphere requirements
-apt-get -y install open-vm-dkms
+#apt-get -y install open-vm-dkms
 
 # OpenStack requirement
 apt-get -y install qemu-utils
 
 # CentOS building requirements
-apt-get -y install yum
+#apt-get -y install yum
 
 # needed by stemcell building
 apt-get -y install parted
