@@ -7,10 +7,12 @@ module Bosh::Stemcell
       it 'returns the correct infrastrcture' do
         expect(Infrastructure.for('openstack')).to be_an(Infrastructure::OpenStack)
         expect(Infrastructure.for('aws')).to be_an(Infrastructure::Aws)
+        expect(Infrastructure.for('google')).to be_an(Infrastructure::Google)
         expect(Infrastructure.for('vsphere')).to be_a(Infrastructure::Vsphere)
         expect(Infrastructure.for('warden')).to be_a(Infrastructure::Warden)
         expect(Infrastructure.for('vcloud')).to be_a(Infrastructure::Vcloud)
         expect(Infrastructure.for('azure')).to be_a(Infrastructure::Azure)
+        expect(Infrastructure.for('softlayer')).to be_a(Infrastructure::Softlayer)
         expect(Infrastructure.for('null')).to be_an(Infrastructure::NullInfrastructure)
       end
 
@@ -72,6 +74,7 @@ module Bosh::Stemcell
       expect(subject).to_not eq(Infrastructure.for('aws'))
       expect(subject).to_not eq(Infrastructure.for('vsphere'))
       expect(subject).to_not eq(Infrastructure.for('azure'))
+      expect(subject).to_not eq(Infrastructure.for('softlayer'))
     end
 
     it 'defaults to no additional cloud properties' do
@@ -95,6 +98,20 @@ module Bosh::Stemcell
     it { should_not eq Infrastructure.for('openstack') }
 
     it 'has aws specific additional cloud properties' do
+      expect(subject.additional_cloud_properties).to eq({'root_device_name' => '/dev/sda1'})
+    end
+  end
+
+  describe Infrastructure::Google do
+    its(:name)              { should eq('google') }
+    its(:hypervisor)        { should eq('kvm') }
+    its(:default_disk_size) { should eq(3072) }
+    its(:disk_formats)      { should eq(['rawdisk']) }
+
+    it { should eq Infrastructure.for('google') }
+    it { should_not eq Infrastructure.for('openstack') }
+
+    it 'has google specific additional cloud properties' do
       expect(subject.additional_cloud_properties).to eq({'root_device_name' => '/dev/sda1'})
     end
   end
@@ -151,6 +168,20 @@ module Bosh::Stemcell
     it { should_not eq Infrastructure.for('vcloud') }
 
     it 'has azure specific additional cloud properties' do
+      expect(subject.additional_cloud_properties).to eq({'root_device_name' => '/dev/sda1'})
+    end
+  end
+
+  describe Infrastructure::Softlayer do
+    its(:name)              { should eq('softlayer') }
+    its(:hypervisor)        { should eq('esxi') }
+    its(:default_disk_size) { should eq(3072) }
+    its(:disk_formats)      { should eq(['ovf']) }
+
+    it { should eq Infrastructure.for('softlayer') }
+    it { should_not eq Infrastructure.for('vsphere') }
+
+    it 'has softlayer specific additional cloud properties' do
       expect(subject.additional_cloud_properties).to eq({'root_device_name' => '/dev/sda1'})
     end
   end

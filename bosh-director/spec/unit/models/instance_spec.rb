@@ -3,7 +3,38 @@ require 'bosh/director/models/instance'
 
 module Bosh::Director::Models
   describe Instance do
-    subject { described_class.make }
+    subject { described_class.make(job: 'test-job') }
+
+    describe '#cloud_properties_hash' do
+      context 'when the cloud_properties are not nil' do
+        it 'should return the parsed json' do
+          subject.cloud_properties = '{"foo":"bar"}'
+          expect(subject.cloud_properties_hash).to eq({'foo' => 'bar'})
+        end
+      end
+
+      context "when the instance's cloud_properties are nil" do
+        context 'when the model is missing data' do
+          it 'does not error' do
+            expect(subject.cloud_properties_hash).to eq({})
+          end
+        end
+
+        context 'when the vm_type has cloud_properties' do
+          it 'should return cloud_properties from vm_type' do
+            subject.spec = {'vm_type' => {'cloud_properties' => {'foo' => 'bar'}}}
+            expect(subject.cloud_properties_hash).to eq({'foo' => 'bar'})
+          end
+        end
+
+        context 'when the vm_type has no cloud properties' do
+          it 'does not error' do
+            subject.spec = {'vm_type' => {'cloud_properties' => nil}}
+            expect(subject.cloud_properties_hash).to eq({})
+          end
+        end
+      end
+    end
 
     describe '#latest_rendered_templates_archive' do
       def perform
@@ -93,6 +124,12 @@ module Bosh::Director::Models
       end
     end
 
+    describe '#name' do
+      it 'returns the instance name' do
+        expect(subject.name).to eq("test-job/#{subject.uuid}")
+      end
+    end
+
     context 'apply' do
       before do
         subject.spec=({
@@ -108,15 +145,52 @@ module Bosh::Director::Models
       end
 
       it 'should have vm_type' do
-        expect(subject.spec['vm_type']).to eq({'name' => 'a', 'cloud_properties' => {}})
+        expect(subject.spec_p('vm_type')).to eq({'name' => 'a', 'cloud_properties' => {}})
       end
 
       it 'should have stemcell' do
-        expect(subject.spec['stemcell']).to eq({
+        expect(subject.spec_p('stemcell')).to eq({
               'alias' => 'a',
               'name' => 'ubuntu-stemcell',
               'version' => '1'
             })
+      end
+    end
+
+    context 'spec_p' do
+      it 'should return the property at the given dot separated path' do
+        subject.spec=({'foo' => {'bar' => 'baz'}})
+        expect(subject.spec_p('foo.bar')).to eq('baz')
+      end
+
+      context 'when the spec is nil' do
+        it 'returns nil' do
+          subject.spec_json = nil
+          expect(subject.spec_json).to eq(nil)
+          expect(subject.spec_p('foo')).to eq(nil)
+          expect(subject.spec_p('foo.bar')).to eq(nil)
+        end
+      end
+
+      context 'when the path does not exist' do
+        it 'returns nil' do
+          subject.spec=({'foo' => 'bar'})
+          expect(subject.spec_p('nothing')).to eq(nil)
+        end
+      end
+
+      context 'when none of the path exists' do
+        it 'returns nil' do
+          subject.spec=({'foo' => 'bar'})
+          expect(subject.spec_p('nothing.anywhere')).to eq(nil)
+        end
+      end
+
+      context 'when the path refers to a value that is not a hash' do
+        it 'returns nil' do
+          subject.spec=({'foo' => 'bar'})
+          expect(subject.spec_p('foo.bar')).to eq(nil)
+        end
       end
     end
 

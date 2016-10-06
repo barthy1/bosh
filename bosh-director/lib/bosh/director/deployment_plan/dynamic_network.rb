@@ -8,7 +8,7 @@ module Bosh::Director
         name = safe_property(network_spec, 'name', :class => String)
         Canonicalizer.canonicalize(name)
         logger = TaggedLogger.new(logger, 'network-configuration')
-        dns_manager = DnsManager.create
+        dns_manager = DnsManagerProvider.create
 
         validate_network_has_no_key('az', name, network_spec)
         validate_network_has_no_key('azs', name, network_spec)
@@ -124,7 +124,7 @@ module Bosh::Director
       def validate_reference_from_job!(job_network_spec, job_name)
         if job_network_spec.has_key?('static_ips')
           raise JobStaticIPNotSupportedOnDynamicNetwork,
-            "Job '#{job_name}' using dynamic network '#{name}' cannot specify static IP(s)"
+            "Instance group '#{job_name}' using dynamic network '#{name}' cannot specify static IP(s)"
         end
       end
 

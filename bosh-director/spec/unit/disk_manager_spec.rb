@@ -3,7 +3,6 @@ require 'spec_helper'
 module Bosh::Director
   describe Bosh::Director::DiskManager do
     subject(:disk_manager) { DiskManager.new(cloud, logger) }
-    let(:vm_recreator) { instance_double(VmRecreator) }
 
     let(:cloud) { instance_double(Bosh::Cloud) }
     let(:instance_plan) { DeploymentPlan::InstancePlan.new({
@@ -15,25 +14,28 @@ module Bosh::Director
 
     let(:job_persistent_disk_size) { 1024 }
     let(:job) do
-      job = DeploymentPlan::Job.new(logger)
+      job = DeploymentPlan::InstanceGroup.new(logger)
       job.name = 'job-name'
       job.persistent_disk_type = DeploymentPlan::DiskType.new('disk-name', job_persistent_disk_size, {'cloud' => 'properties'})
       job
     end
     let(:instance) { DeploymentPlan::Instance.create_from_job(job, 1, 'started', nil, {}, nil, logger) }
     let(:instance_model) do
-      instance = Models::Instance.make(vm: vm_model)
+      instance = Models::Instance.make(vm_cid: 'vm234', uuid: 'my-uuid-1')
       instance.add_persistent_disk(persistent_disk) if persistent_disk
       instance
     end
 
-    let(:vm_model) { Models::Vm.make(cid: 'vm234') }
     let(:persistent_disk) { Models::PersistentDisk.make(disk_cid: 'disk123', size: 2048, cloud_properties: {'cloud' => 'properties'}, active: true) }
     let(:agent_client) { instance_double(Bosh::Director::AgentClient) }
 
+    let(:event_manager) {Api::EventManager.new(true)}
+    let(:task_id) {42}
+    let(:update_job) {instance_double(Bosh::Director::Jobs::UpdateDeployment, username: 'user', task_id: task_id, event_manager: event_manager)}
+
     before do
       instance.bind_existing_instance_model(instance_model)
-      allow(AgentClient).to receive(:with_vm).with(vm_model).and_return(agent_client)
+      allow(AgentClient).to receive(:with_vm_credentials_and_agent_id).with(instance_model.credentials, instance_model.agent_id).and_return(agent_client)
       allow(agent_client).to receive(:list_disk).and_return(['disk123'])
       allow(cloud).to receive(:create_disk).and_return('new-disk-cid')
       allow(cloud).to receive(:attach_disk)
@@ -43,29 +45,126 @@ module Bosh::Director
       allow(agent_client).to receive(:unmount_disk)
       allow(cloud).to receive(:detach_disk)
       allow(Config).to receive(:cloud).and_return(cloud)
+      allow(Config).to receive(:current_job).and_return(update_job)
     end
 
     describe '#update_persistent_disk' do
+      context 'when disk creation fails' do
+        context 'with NoDiskSpaceError' do
+          let(:error) { Bosh::Clouds::NoDiskSpace.new(true) }
+
+          before do
+            allow(cloud).to receive(:create_disk).and_raise(error)
+          end
+
+          it 'should raise the error' do
+            expect {
+              disk_manager.update_persistent_disk(instance_plan)
+            }.to raise_error error
+          end
+        end
+      end
+
+      context 'when disk creation succeeds, but there is a NoDiskSpaceError during attach_disk' do
+        let(:error) { Bosh::Clouds::NoDiskSpace.new(false) }
+
+        it 'orphans the disk' do
+          allow(cloud).to receive(:attach_disk).and_raise(error)
+
+          expect {
+            disk_manager.update_persistent_disk(instance_plan)
+          }.to raise_error error
+        end
+      end
+
       context 'when the agent reports a different disk cid from the model' do
         before do
           allow(agent_client).to receive(:list_disk).and_return(['random-disk-cid'])
         end
 
-        it 'raises' do
-          expect {
-            disk_manager.update_persistent_disk(instance_plan, vm_recreator)
-          }.to raise_error AgentDiskOutOfSync, "`job-name/1' has invalid disks: agent reports `random-disk-cid' while director record shows `disk123'"
+        context 'when uuid has not been set' do
+          it 'raises' do
+            expect {
+              disk_manager.update_persistent_disk(instance_plan)
+            }.to raise_error AgentDiskOutOfSync, "'job-name/1 (my-uuid-1)' has invalid disks: agent reports 'random-disk-cid' while director record shows 'disk123'"
+          end
+        end
+
+        context 'when uuid has been set' do
+
+          let(:instance_plan) {
+            instance_model.uuid = "123-456-789"
+            instance = DeploymentPlan::Instance.create_from_job(job, 1, 'started', nil, {}, nil, logger)
+            instance.bind_existing_instance_model(instance_model)
+
+            DeploymentPlan::InstancePlan.new({
+               existing_instance: instance_model,
+               desired_instance: DeploymentPlan::DesiredInstance.new(job),
+               instance: instance,
+               network_plans: [],
+            })
+          }
+
+          it 'raises' do
+            expect {
+              disk_manager.update_persistent_disk(instance_plan)
+            }.to raise_error AgentDiskOutOfSync, "'job-name/1 (123-456-789)' has invalid disks: agent reports 'random-disk-cid' while director record shows 'disk123'"
+          end
         end
       end
 
       context 'when the agent reports a disk cid consistent with the model' do
-        let(:inactive_disk) { Models::PersistentDisk.make(disk_cid: 'inactive-disk', active: false) }
-        before { instance_model.add_persistent_disk(inactive_disk) }
+        let!(:inactive_disk) do
+          Models::PersistentDisk.make(
+            disk_cid: 'inactive-disk',
+            active: false,
+            instance: instance_model,
+            size: 54,
+            cloud_properties: {'cloud-props' => 'something'}
+          )
+        end
 
         it 'logs when the disks are inactive' do
-          expect(logger).to receive(:warn).with("`job-name/1' has inactive disk inactive-disk")
-          disk_manager.update_persistent_disk(instance_plan, vm_recreator)
+          expect(logger).to receive(:warn).with("'job-name/1 (my-uuid-1)' has inactive disk inactive-disk")
+          disk_manager.update_persistent_disk(instance_plan)
         end
+
+        it 'stores events' do
+          expect {
+            disk_manager.update_persistent_disk(instance_plan)
+          }.to change {
+          Bosh::Director::Models::Event.count }.from(0).to(6)
+
+          event_1 = Bosh::Director::Models::Event.first
+          expect(event_1.user).to eq('user')
+          expect(event_1.action).to eq('create')
+          expect(event_1.object_type).to eq('disk')
+          expect(event_1.object_name).to eq(nil)
+          expect(event_1.task).to eq("#{task_id}")
+          expect(event_1.deployment).to eq(instance_model.deployment.name)
+          expect(event_1.instance).to eq(instance_model.name)
+
+          event_2 = Bosh::Director::Models::Event.order(:id)[2]
+          expect(event_2.parent_id).to eq(1)
+          expect(event_2.user).to eq('user')
+          expect(event_2.action).to eq('create')
+          expect(event_2.object_type).to eq('disk')
+          expect(event_2.object_name).to eq('new-disk-cid')
+          expect(event_2.task).to eq("#{task_id}")
+          expect(event_2.deployment).to eq(instance_model.deployment.name)
+          expect(event_2.instance).to eq(instance_model.name)
+        end
+
+        it 'stores events with error information' do
+          allow(cloud).to receive(:create_disk).and_raise(Exception, 'error')
+          expect {
+            disk_manager.update_persistent_disk(instance_plan)
+          }.to raise_error Exception, 'error'
+
+          event_2 = Bosh::Director::Models::Event.order(:id)[2]
+          expect(event_2.error).to eq('error')
+        end
+
 
         context 'when the persistent disk is changed' do
           before { expect(instance_plan.persistent_disk_changed?).to be_truthy }
@@ -73,87 +172,43 @@ module Bosh::Director
           context 'when the job has persistent disk type and the disk type is non zero' do
             it 'calls to the cpi to create the disk specified by the job' do
               expect(cloud).to receive(:create_disk).with(1024, {'cloud' => 'properties'}, 'vm234').and_return('new-disk-cid')
-              disk_manager.update_persistent_disk(instance_plan, vm_recreator)
+              disk_manager.update_persistent_disk(instance_plan)
             end
 
             it 'creates a persistent disk record' do
-              disk_manager.update_persistent_disk(instance_plan, vm_recreator)
+              disk_manager.update_persistent_disk(instance_plan)
               model = Models::PersistentDisk.where(instance_id: instance_model.id, size: 1024).first
               expect(model.cloud_properties).to eq({'cloud' => 'properties'})
             end
 
             it 'attaches the disk to the vm' do
               expect(cloud).to receive(:attach_disk).with('vm234', 'new-disk-cid')
-              disk_manager.update_persistent_disk(instance_plan, vm_recreator)
+              disk_manager.update_persistent_disk(instance_plan)
             end
 
-            context 'when the disk fails to attach with no disk space error' do
-              let(:no_space) { Bosh::Clouds::NoDiskSpace.new(ok_to_retry) }
+            context 'when the new disk fails to attach with no disk space error' do
+              let(:no_space) { Bosh::Clouds::NoDiskSpace.new(true) }
 
               before do
                 expect(cloud).to receive(:attach_disk).with('vm234', 'new-disk-cid').once.and_raise(no_space)
               end
 
-              context 'when it is ok to retry' do
-                let(:ok_to_retry) { true }
-
-                before { allow(vm_recreator).to receive(:recreate_vm) }
-
-                it 'unmounts the disk' do
-                  expect(cloud).to receive(:attach_disk).with('vm234', 'new-disk-cid').once
-                  expect(agent_client).to receive(:stop)
-                  expect(agent_client).to receive(:unmount_disk).with('disk123').twice
-                  disk_manager.update_persistent_disk(instance_plan, vm_recreator)
-                end
-
-                it 'recreates the vm' do
-                  expect(cloud).to receive(:attach_disk).with('vm234', 'new-disk-cid').once
-                  expect(vm_recreator).to receive(:recreate_vm).with(instance_plan, 'new-disk-cid')
-                  disk_manager.update_persistent_disk(instance_plan, vm_recreator)
-                end
-
-                it 'attaches the disk' do
-                  expect(cloud).to receive(:attach_disk).with('vm234', 'new-disk-cid').once
-                  disk_manager.update_persistent_disk(instance_plan, vm_recreator)
-                end
-
-                context 'and it fails to attach the disk the second time' do
-                  let(:nope) { StandardError.new('still nope') }
-
-                  before do
-                    expect(cloud).to receive(:attach_disk).with('vm234', 'new-disk-cid').once.and_raise(nope)
-                  end
-
-                  it 'deletes the unused disk and re-raises the exception from the second attempt' do
-                    expect {
-                      disk_manager.update_persistent_disk(instance_plan, vm_recreator)
-                    }.to raise_error nope
-                    expect(Models::PersistentDisk.where(:disk_cid => 'new-disk-cid').all).to eq([])
-                  end
-                end
-              end
-
-              context 'when it is not ok to retry' do
-                let(:ok_to_retry) { false }
-
-                it 'deletes the disk and raises' do
-                  expect {
-                    disk_manager.update_persistent_disk(instance_plan, vm_recreator)
-                  }.to raise_error no_space
-                  expect(Models::PersistentDisk.where(:disk_cid => 'new-disk-cid').all).to eq([])
-                end
+              it 'raises the error' do
+                expect {
+                  disk_manager.update_persistent_disk(instance_plan)
+                }.to raise_error no_space
               end
             end
 
             it 'mounts the new disk' do
               expect(agent_client).to receive(:mount_disk).with('new-disk-cid')
-              disk_manager.update_persistent_disk(instance_plan, vm_recreator)
+              disk_manager.update_persistent_disk(instance_plan)
             end
 
             context 'where there is an old disk to migrate' do
               it 'migrates the disk' do
                 expect(agent_client).to receive(:migrate_disk).with('disk123', 'new-disk-cid')
-                disk_manager.update_persistent_disk(instance_plan, vm_recreator)
+                disk_manager.update_persistent_disk(instance_plan)
               end
             end
 
@@ -174,7 +229,7 @@ module Bosh::Director
                 end
 
                 it 'switches active disks' do
-                  disk_manager.update_persistent_disk(instance_plan, vm_recreator)
+                  disk_manager.update_persistent_disk(instance_plan)
                   expect(Models::PersistentDisk.where(instance_id: instance_model.id, disk_cid: 'new-disk-cid', active: true).first).to_not be_nil
                 end
 
@@ -182,15 +237,31 @@ module Bosh::Director
                   let(:snapshot) { Models::Snapshot.make }
                   before do
                     persistent_disk.add_snapshot(snapshot)
+                    allow(agent_client).to receive(:unmount_disk).with('disk123')
+                    allow(cloud).to receive(:detach_disk).with('vm234', 'disk123')
                   end
 
-                  it 'deletes the old mounted disk' do
+                  it 'orphans the old mounted disk' do
                     expect(agent_client).to receive(:unmount_disk).with('disk123')
                     expect(cloud).to receive(:detach_disk).with('vm234', 'disk123')
 
-                    disk_manager.update_persistent_disk(instance_plan, vm_recreator)
+                    disk_manager.update_persistent_disk(instance_plan)
 
                     expect(Models::PersistentDisk.where(disk_cid: 'disk123').first).to be_nil
+                  end
+
+                  it 'orphans additional inactive disks' do
+                    expect(cloud).to receive(:detach_disk).with('vm234', 'inactive-disk')
+
+                    disk_manager.update_persistent_disk(instance_plan)
+                    expect(Models::PersistentDisk.where(disk_cid: 'inactive-disk').first).to be_nil
+
+                    orphan_disk = Models::OrphanDisk.where(disk_cid: 'inactive-disk').first
+                    expect(orphan_disk.size).to eq(54)
+                    expect(orphan_disk.availability_zone).to eq(instance_model.availability_zone)
+                    expect(orphan_disk.deployment_name).to eq(instance_model.deployment.name)
+                    expect(orphan_disk.instance_name).to eq("#{instance_model.job}/#{instance_model.uuid}")
+                    expect(orphan_disk.cloud_properties).to eq({'cloud-props' => 'something'})
                   end
                 end
               end
@@ -205,7 +276,7 @@ module Bosh::Director
                   expect(agent_client).to_not receive(:unmount_disk)
                   expect(cloud).to receive(:detach_disk).with('vm234', 'new-disk-cid')
                   expect {
-                    disk_manager.update_persistent_disk(instance_plan, vm_recreator)
+                    disk_manager.update_persistent_disk(instance_plan)
                   }.to raise_error disk_error
                   expect(Models::PersistentDisk.where(disk_cid: 'new-disk-cid').all).to eq([])
                 end
@@ -222,7 +293,7 @@ module Bosh::Director
                   expect(agent_client).to receive(:unmount_disk).with('new-disk-cid')
                   expect(cloud).to receive(:detach_disk).with('vm234', 'new-disk-cid')
                   expect {
-                    disk_manager.update_persistent_disk(instance_plan, vm_recreator)
+                    disk_manager.update_persistent_disk(instance_plan)
                   }.to raise_error disk_error
                   expect(Models::PersistentDisk.where(disk_cid: 'new-disk-cid').all).to eq([])
                 end
@@ -240,7 +311,7 @@ module Bosh::Director
 
           it 'does not migrate the disk' do
             expect(cloud).to_not receive(:create_disk)
-            disk_manager.update_persistent_disk(instance_plan, nil)
+            disk_manager.update_persistent_disk(instance_plan)
           end
         end
       end
@@ -257,7 +328,7 @@ module Bosh::Director
             expect(Models::PersistentDisk.all.size).to eq(1)
             expect(Models::OrphanDisk.all.size).to eq(0)
 
-            disk_manager.update_persistent_disk(instance_plan, vm_recreator)
+            disk_manager.update_persistent_disk(instance_plan)
 
             expect(Models::PersistentDisk.all.size).to eq(0)
             expect(Models::OrphanDisk.all.size).to eq(1)
@@ -270,8 +341,8 @@ module Bosh::Director
 
           it 'raises' do
             expect {
-              disk_manager.update_persistent_disk(instance_plan, vm_recreator)
-            }.to raise_error AgentDiskOutOfSync, "`job-name/1' has invalid disks: agent reports `' while director record shows `disk123'"
+              disk_manager.update_persistent_disk(instance_plan)
+            }.to raise_error AgentDiskOutOfSync, "'job-name/1 (my-uuid-1)' has invalid disks: agent reports '' while director record shows 'disk123'"
           end
         end
       end
@@ -299,6 +370,32 @@ module Bosh::Director
 
         disk_manager.delete_persistent_disks(instance_model)
       end
+
+      it "stores events" do
+        expect {
+          disk_manager.delete_persistent_disks(instance_model)
+        }.to change {
+          Bosh::Director::Models::Event.count }.from(0).to(2)
+
+        event_1 = Bosh::Director::Models::Event.first
+        expect(event_1.user).to eq('user')
+        expect(event_1.action).to eq('delete')
+        expect(event_1.object_type).to eq('disk')
+        expect(event_1.object_name).to eq('disk123')
+        expect(event_1.task).to eq("#{task_id}")
+        expect(event_1.deployment).to eq(instance_model.deployment.name)
+        expect(event_1.instance).to eq(instance_model.name)
+
+        event_2 = Bosh::Director::Models::Event.order(:id).last
+        expect(event_2.parent_id).to eq(1)
+        expect(event_2.user).to eq('user')
+        expect(event_2.action).to eq('delete')
+        expect(event_2.object_type).to eq('disk')
+        expect(event_2.object_name).to eq('disk123')
+        expect(event_2.task).to eq("#{task_id}")
+        expect(event_2.deployment).to eq(instance_model.deployment.name)
+        expect(event_2.instance).to eq(instance_model.name)
+      end
     end
 
     describe '#orphan_disk' do
@@ -322,7 +419,7 @@ module Bosh::Director
         conflicting_orphan_snapshot = Models::OrphanSnapshot.make(
           orphan_disk: conflicting_orphan_disk,
           snapshot_cid: 'existing_cid',
-          snapshot_created_at: 0
+          snapshot_created_at: Time.now
         )
 
         snapshot = Models::Snapshot.make(
@@ -344,8 +441,8 @@ module Bosh::Director
 
     describe '#list_orphan_disk' do
       it 'returns an array of orphaned disks as hashes' do
-        orphaned_at = Time.now
-        other_orphaned_at = Time.now
+        orphaned_at = Time.now.utc
+        other_orphaned_at = Time.now.utc
         Models::OrphanDisk.make(
           disk_cid: 'random-disk-cid-1',
           instance_name: 'fake-name-1',
@@ -386,7 +483,7 @@ module Bosh::Director
     end
 
     describe 'Deleting orphans' do
-      let(:time) { Time.now }
+      let(:time) { Time.now.utc }
       let(:ten_seconds_ago) { time - 10 }
       let(:six_seconds_ago) { time - 6 }
       let(:five_seconds_ago) { time - 5 }
@@ -398,9 +495,9 @@ module Bosh::Director
       let(:orphan_disk_2) { Models::OrphanDisk.make(disk_cid: 'disk-cid-2', created_at: five_seconds_ago) }
       let(:orphan_disk_cid_1) { orphan_disk_1.disk_cid }
       let(:orphan_disk_cid_2) { orphan_disk_2.disk_cid }
-      let!(:orphan_disk_snapshot_1a) { Models::OrphanSnapshot.make(orphan_disk: orphan_disk_1, created_at: 0, snapshot_cid: 'snap-cid-a') }
-      let!(:orphan_disk_snapshot_1b) { Models::OrphanSnapshot.make(orphan_disk: orphan_disk_1, created_at: 0, snapshot_cid: 'snap-cid-b') }
-      let!(:orphan_disk_snapshot_2) { Models::OrphanSnapshot.make(orphan_disk: orphan_disk_2, created_at: 0, snapshot_cid: 'snap-cid-2') }
+      let!(:orphan_disk_snapshot_1a) { Models::OrphanSnapshot.make(orphan_disk: orphan_disk_1, created_at: Time.now, snapshot_cid: 'snap-cid-a') }
+      let!(:orphan_disk_snapshot_1b) { Models::OrphanSnapshot.make(orphan_disk: orphan_disk_1, created_at: Time.now, snapshot_cid: 'snap-cid-b') }
+      let!(:orphan_disk_snapshot_2) { Models::OrphanSnapshot.make(orphan_disk: orphan_disk_2, created_at: Time.now, snapshot_cid: 'snap-cid-2') }
       before do
         allow(cloud).to receive(:delete_disk)
         allow(cloud).to receive(:delete_snapshot)

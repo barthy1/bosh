@@ -18,93 +18,34 @@ module Bosh::Director::DeploymentPlan
     end
 
     let(:deployment) { Bosh::Director::Models::Deployment.make(name: 'fake-deployment') }
-    let(:network_resolver) { GlobalNetworkResolver.new(plan) }
+    let(:network_resolver) { GlobalNetworkResolver.new(plan, [], logger) }
     let(:job) do
-      instance_double('Bosh::Director::DeploymentPlan::Job',
+      instance_double('Bosh::Director::DeploymentPlan::InstanceGroup',
         vm_type: vm_type,
         stemcell: stemcell,
         env: env,
         name: 'fake-job',
         persistent_disk_type: disk_type,
         compilation?: false,
-        can_run_as_errand?: false
+        is_errand?: false,
+        vm_extensions: vm_extensions
       )
     end
     let(:vm_type) { VmType.new({'name' => 'fake-vm-type'}) }
+    let(:vm_extensions) {[]}
     let(:stemcell) { make_stemcell({:name => 'fake-stemcell-name', :version => '1.0'}) }
     let(:env) { Env.new({'key' => 'value'}) }
     let(:disk_type) { nil }
     let(:net) { instance_double('Bosh::Director::DeploymentPlan::Network', name: 'net_a') }
     let(:availability_zone) { Bosh::Director::DeploymentPlan::AvailabilityZone.new('foo-az', {'a' => 'b'}) }
-    let(:vm) { Vm.new }
 
     let(:instance_model) { Bosh::Director::Models::Instance.make(deployment: deployment, bootstrap: true, uuid: 'uuid-1') }
-    let(:vm_model) { Bosh::Director::Models::Vm.make }
 
     let(:current_state) { {'current' => 'state'} }
     let(:desired_instance) { DesiredInstance.new(job, current_state, plan, availability_zone, 1)}
 
-    describe '#configuration_changed?' do
-      let(:job) { Job.new(logger) }
-
-      describe 'when the configuration has changed' do
-        let(:current_state) { {'configuration_hash' => {'changed' => 'value'}} }
-
-        it 'should return true' do
-          expect(instance.configuration_changed?).to eq(true)
-        end
-
-        it 'should log the configuration changed reason' do
-          expect(logger).to receive(:debug).with('configuration_changed? changed FROM: {"changed"=>"value"} TO: ')
-          instance.configuration_changed?
-        end
-      end
-
-      describe 'when the configuration has not changed' do
-        it 'should return false' do
-          expect(instance.configuration_changed?).to eq(false)
-        end
-      end
-    end
-
-    describe '#bind_unallocated_vm' do
-      let(:index) { 2 }
-      let(:net) { instance_double('Bosh::Director::DeploymentPlan::Network', name: 'net_a') }
-      let(:resource_pool) { instance_double('Bosh::Director::DeploymentPlan::ResourcePool') }
-      let(:old_ip) { NetAddr::CIDR.create('10.0.0.5').to_i }
-      let(:vm_ip) { NetAddr::CIDR.create('10.0.0.3').to_i }
-      let(:vm) { Vm.new }
-
-      before do
-        allow(job).to receive(:vm_type).and_return(vm_type)
-        allow(job).to receive(:stemcell).and_return(stemcell)
-      end
-
-      it 'creates a new VM and binds it the instance' do
-        instance.bind_unallocated_vm
-
-        expect(instance.model).not_to be_nil
-        expect(instance.vm).not_to be_nil
-        expect(instance.vm.bound_instance).to eq(instance)
-      end
-
-      it 'creates a new uuid for each instance' do
-        allow(SecureRandom).to receive(:uuid).and_return('uuid-1', 'uuid-2')
-        first_instance = Instance.create_from_job(job, index, state, deployment, current_state, availability_zone, logger)
-        first_instance.bind_unallocated_vm
-        first_uuid = first_instance.uuid
-        index = 1
-        second_instance = Instance.create_from_job(job, index, state, deployment, current_state, availability_zone, logger)
-        second_instance.bind_unallocated_vm
-        second_uuid = second_instance.uuid
-        expect(first_uuid).to_not be_nil
-        expect(second_uuid).to_not be_nil
-        expect(first_uuid).to_not eq(second_uuid)
-      end
-    end
-
     describe '#bind_existing_instance_model' do
-      let(:job) { Job.new(logger) }
+      let(:job) { InstanceGroup.new(logger) }
 
       let(:network) do
         instance_double('Bosh::Director::DeploymentPlan::Network', name: 'fake-network', reserve: nil)
@@ -123,11 +64,8 @@ module Bosh::Director::DeploymentPlan
       it 'sets the instance model' do
         instance.bind_existing_instance_model(instance_model)
         expect(instance.model).to eq(instance_model)
-        expect(instance.vm).to_not be_nil
-        expect(instance.vm.model).to be(instance_model.vm)
-        expect(instance.vm.bound_instance).to be(instance)
       end
-      end
+    end
 
     describe '#bind_new_instance_model' do
       it 'sets the instance model and uuid' do
@@ -141,15 +79,13 @@ module Bosh::Director::DeploymentPlan
     end
 
     context 'applying state' do
-      let(:job) { Job.new(logger) }
+      let(:job) { InstanceGroup.new(logger) }
 
       let(:agent_client) { instance_double('Bosh::Director::AgentClient') }
 
       before do
-        allow(Bosh::Director::AgentClient).to receive(:with_vm).with(vm_model).and_return(agent_client)
+        allow(BD::AgentClient).to receive(:with_vm_credentials_and_agent_id).with(instance_model.credentials, instance_model.agent_id).and_return(agent_client)
         instance.bind_existing_instance_model(instance_model)
-        instance.bind_unallocated_vm
-        instance.bind_to_vm_model(vm_model)
       end
 
       describe 'apply_vm_state' do
@@ -171,7 +107,6 @@ module Bosh::Director::DeploymentPlan
         it 'updates the model with the spec, applies to state to the agent, and sets the current state of the instance' do
           expect(agent_client).to receive(:apply).with(state).ordered
           instance.apply_vm_state(instance_spec)
-          expect(instance.current_state).to eq(state)
           expect(instance_model.spec).to eq(state)
         end
       end
@@ -184,6 +119,7 @@ module Bosh::Director::DeploymentPlan
             'job' => 'fake-job',
             'index' => 5,
             'id' => 'fake-uuid',
+            'env' => 'fake-env',
             'unneeded-properties' => 'nope'
           }
         end
@@ -203,7 +139,8 @@ module Bosh::Director::DeploymentPlan
           expect(agent_client).to receive(:get_state).and_return(agent_state).ordered
 
           instance.apply_initial_vm_state(instance_spec)
-          expect(instance_model.spec['networks']).to eq({'changed' => {}})
+          expect(instance_model.spec_p('networks')).to eq({'changed' => {}})
+          expect(instance_model.spec_p('env')).to eq('fake-env')
         end
       end
     end
@@ -314,19 +251,6 @@ module Bosh::Director::DeploymentPlan
       end
     end
 
-    describe '#bind_to_vm_model' do
-      before do
-        instance.bind_unallocated_vm
-        instance.bind_to_vm_model(vm_model)
-      end
-
-      it 'updates instance model with new vm model' do
-        expect(instance.model.refresh.vm).to eq(vm_model)
-        expect(instance.vm.model).to eq(vm_model)
-        expect(instance.vm.bound_instance).to eq(instance)
-      end
-    end
-
     describe '#cloud_properties' do
       context 'when the instance has an availability zone' do
         it 'merges the resource pool cloud properties into the availability zone cloud properties' do
@@ -340,6 +264,26 @@ module Bosh::Director::DeploymentPlan
               {'zone' => 'the-right-one', 'resources' => 'the-good-stuff', 'foo' => 'rp-foo'},
             )
         end
+
+        context 'when the instance has vm_extensions' do
+          context 'when vm_type and vm_extensions and availability zones have some overlapping cloud properties' do
+            let(:vm_extension_1) {VmExtension.new({'name' => 'fake-vm-extension-1'})}
+            let(:vm_extension_2) {VmExtension.new({'name' => 'fake-vm-extension-2'})}
+            let(:vm_extensions) {[vm_extension_1, vm_extension_2]}
+
+            it 'uses the vm_type cloud_properties then the availability zones then rightmost vm_extension for overlapping values' do
+              availability_zone = instance_double(Bosh::Director::DeploymentPlan::AvailabilityZone)
+              allow(availability_zone).to receive(:cloud_properties).and_return({'foo' => 'az-foo', 'zone' => 'the-right-one', 'other-stuff' => 'who-chares'})
+              allow(vm_type).to receive(:cloud_properties).and_return({'foo' => 'rp-foo', 'resources' => 'the-good-stuff', 'other-stuff' => 'i-chares'})
+              allow(vm_extension_1).to receive(:cloud_properties).and_return({'fooz' => 'bar', 'resources' => 'the-new-stuff', 'food' => 'drink'})
+              allow(vm_extension_2).to receive(:cloud_properties).and_return({'foo' => 'baaaz', 'food' => 'eat'})
+
+              instance = Instance.create_from_job(job, index, state, deployment, current_state, availability_zone, logger)
+
+              expect(instance.cloud_properties).to eq({'resources' => 'the-new-stuff', 'foo' => 'baaaz', 'zone' => 'the-right-one', 'food' => 'eat', 'fooz' => 'bar', 'other-stuff' => 'i-chares'})
+            end
+          end
+        end
       end
 
       context 'when the instance does not have an availability zone' do
@@ -352,6 +296,38 @@ module Bosh::Director::DeploymentPlan
               {'resources' => 'the-good-stuff', 'foo' => 'rp-foo'},
             )
         end
+
+        context 'when the instance has vm_extensions' do
+          let(:vm_extension_1) {VmExtension.new({'name' => 'fake-vm-extension-1'})}
+          let(:vm_extension_2) {VmExtension.new({'name' => 'fake-vm-extension-2'})}
+
+          context 'when the same property exists in multiple vm_extensions' do
+            let(:vm_extensions) {[vm_extension_1, vm_extension_2]}
+
+            it 'uses the right most vm_extension\'s property value for overlapping values' do
+              allow(vm_extension_1).to receive(:cloud_properties).and_return({'foo' => 'bar', 'resources' => 'the-good-stuff'})
+              allow(vm_extension_2).to receive(:cloud_properties).and_return({'foo' => 'baaaz'})
+
+              instance = Instance.create_from_job(job, index, state, deployment, current_state, nil, logger)
+
+              expect(instance.cloud_properties).to eq({'resources' => 'the-good-stuff', 'foo' => 'baaaz'})
+            end
+          end
+
+          context 'when vm_type and vm_extensions have some overlapping cloud properties' do
+            let(:vm_extensions) {[vm_extension_1]}
+
+            it 'uses the vm_type cloud_properties for overlapping values' do
+              allow(vm_type).to receive(:cloud_properties).and_return({'foo' => 'rp-foo', 'resources' => 'the-good-stuff'})
+              allow(vm_extension_1).to receive(:cloud_properties).and_return({'foo' => 'bar'})
+
+              instance = Instance.create_from_job(job, index, state, deployment, current_state, nil, logger)
+
+              expect(instance.cloud_properties).to eq({'resources' => 'the-good-stuff', 'foo' => 'bar'})
+            end
+          end
+        end
+
       end
     end
 

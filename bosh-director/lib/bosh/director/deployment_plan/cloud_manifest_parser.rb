@@ -11,10 +11,11 @@ module Bosh::Director
         azs = parse_availability_zones(cloud_manifest)
         az_list = CloudPlanner.index_by_name(azs)
         networks = parse_networks(cloud_manifest, global_network_resolver, azs)
-        compilation_config = parse_compilation(cloud_manifest, networks, az_list)
         resource_pools = parse_resource_pools(cloud_manifest)
         vm_types = parse_vm_types(cloud_manifest)
+        vm_extensions = parse_vm_extensions(cloud_manifest)
         disk_types = parse_disk_types(cloud_manifest)
+        compilation_config = parse_compilation(cloud_manifest, networks, az_list, vm_types, vm_extensions)
 
         CloudPlanner.new({
           availability_zones_list: az_list,
@@ -24,6 +25,7 @@ module Bosh::Director
           compilation: compilation_config,
           resource_pools: resource_pools,
           vm_types: vm_types,
+          vm_extensions: vm_extensions,
           disk_types: disk_types,
           logger: @logger,
         })
@@ -39,7 +41,7 @@ module Bosh::Director
 
         duplicates = detect_duplicates(parsed_availability_zones) { |az| az.name }
         unless duplicates.empty?
-          raise DeploymentDuplicateAvailabilityZoneName, "Duplicate az name `#{duplicates.first.name}'"
+          raise DeploymentDuplicateAvailabilityZoneName, "Duplicate az name '#{duplicates.first.name}'"
         end
 
         parsed_availability_zones
@@ -63,27 +65,27 @@ module Bosh::Director
               VipNetwork.new(network_spec, @logger)
             else
               raise DeploymentInvalidNetworkType,
-                "Invalid network type `#{type}'"
+                "Invalid network type '#{type}'"
           end
         end
 
         duplicates = detect_duplicates(parsed_networks) { |network| network.canonical_name }
         unless duplicates.empty?
-          raise DeploymentCanonicalNetworkNameTaken, "Invalid network name `#{duplicates.first.name}', canonical name already taken"
+          raise DeploymentCanonicalNetworkNameTaken, "Invalid network name '#{duplicates.first.name}', canonical name already taken"
         end
 
         parsed_networks
       end
 
-      def parse_compilation(cloud_manifest, networks, az_list)
+      def parse_compilation(cloud_manifest, networks, az_list, vm_types, vm_extensions)
         compilation_spec = safe_property(cloud_manifest, 'compilation', :class => Hash)
-        config = CompilationConfig.new(compilation_spec, az_list)
+        config = CompilationConfig.new(compilation_spec, az_list, vm_types, vm_extensions)
 
         compilation_network = networks.find { |network| network.name == config.network_name }
         if compilation_network.nil?
           raise CompilationConfigUnknownNetwork,
             "Compilation config references an unknown " +
-              "network `#{config.network_name}'"
+              "network '#{config.network_name}'"
         end
 
         unless compilation_network.has_azs?([config.availability_zone_name])
@@ -111,7 +113,7 @@ module Bosh::Director
 
         duplicates = detect_duplicates(parsed_resource_pools) { |rp| rp.name }
         unless duplicates.empty?
-          raise DeploymentDuplicateResourcePoolName, "Duplicate resource pool name `#{duplicates.first.name}'"
+          raise DeploymentDuplicateResourcePoolName, "Duplicate resource pool name '#{duplicates.first.name}'"
         end
 
         parsed_resource_pools
@@ -126,12 +128,26 @@ module Bosh::Director
 
         duplicates = detect_duplicates(parsed_vm_types) { |vmt| vmt.name }
         unless duplicates.empty?
-          raise DeploymentDuplicateVmTypeName, "Duplicate vm type name `#{duplicates.first.name}'"
+          raise DeploymentDuplicateVmTypeName, "Duplicate vm type name '#{duplicates.first.name}'"
         end
 
         parsed_vm_types
       end
 
+      def parse_vm_extensions(cloud_manifest)
+        vm_extensions = safe_property(cloud_manifest, 'vm_extensions', :class => Array, :optional => true, :default => [])
+
+        parsed_vm_extensions = vm_extensions.map do |vmt_spec|
+          VmExtension.new(vmt_spec)
+        end
+
+        duplicates = detect_duplicates(parsed_vm_extensions) { |vmt| vmt.name }
+        unless duplicates.empty?
+          raise DeploymentDuplicateVmExtensionName, "Duplicate vm extension name '#{duplicates.first.name}'"
+        end
+
+        parsed_vm_extensions
+      end
 
       def parse_disk_types(cloud_manifest)
         disk_pools = safe_property(cloud_manifest, 'disk_pools', :class => Array, :optional => true, :default => [])
@@ -158,7 +174,7 @@ module Bosh::Director
 
         duplicates = detect_duplicates(parsed_disk_types) { |dp| dp.name }
         unless duplicates.empty?
-          raise DeploymentDuplicateDiskTypeName, "Duplicate disk #{disk_source} name `#{duplicates.first.name}'"
+          raise DeploymentDuplicateDiskTypeName, "Duplicate disk #{disk_source} name '#{duplicates.first.name}'"
         end
 
         parsed_disk_types

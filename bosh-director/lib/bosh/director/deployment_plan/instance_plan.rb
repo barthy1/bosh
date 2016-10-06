@@ -10,7 +10,7 @@ module Bosh
           @skip_drain = attrs.fetch(:skip_drain, false)
           @recreate_deployment = attrs.fetch(:recreate_deployment, false)
           @logger = attrs.fetch(:logger, Config.logger)
-          @dns_manager = DnsManager.create
+          @dns_manager = DnsManagerProvider.create
         end
 
         attr_reader :desired_instance, :existing_instance, :instance, :skip_drain, :recreate_deployment
@@ -30,6 +30,7 @@ module Bosh
           return @changes if @changes
 
           @changes = Set.new
+          @changes << :dirty if @instance.dirty?
           @changes << :restart if needs_restart?
           @changes << :recreate if needs_recreate?
           @changes << :cloud_properties if instance.cloud_properties_changed?
@@ -38,7 +39,7 @@ module Bosh
           @changes << :network if networks_changed?
           @changes << :packages if packages_changed?
           @changes << :persistent_disk if persistent_disk_changed?
-          @changes << :configuration if instance.configuration_changed?
+          @changes << :configuration if configuration_changed?
           @changes << :job if job_changed?
           @changes << :state if state_changed?
           @changes << :dns if dns_changed?
@@ -67,6 +68,10 @@ module Bosh
           new? ? instance.model : existing_instance
         end
 
+        def should_be_ignored?
+           !instance_model.nil? && instance_model.ignore
+        end
+
         def needs_restart?
           @instance.virtual_state == 'restart'
         end
@@ -84,7 +89,7 @@ module Bosh
           desired_network_plans = network_plans.select(&:desired?)
           obsolete_network_plans = network_plans.select(&:obsolete?)
 
-          old_network_settings = new? ? {} : @existing_instance.spec['networks']
+          old_network_settings = new? ? {} : @existing_instance.spec_p('networks')
           new_network_settings = network_settings.to_hash
 
           changed = false
@@ -132,6 +137,12 @@ module Bosh
           end
         end
 
+        def configuration_changed?
+          changed = instance.configuration_hash != instance_model.spec_p('configuration_hash')
+          log_changes(__method__, instance_model.spec_p('configuration_hash'), instance.configuration_hash, instance) if changed
+          changed
+        end
+
         def mark_desired_network_plans_as_existing
           network_plans.select(&:desired?).each { |network_plan| network_plan.existing = true }
         end
@@ -166,7 +177,7 @@ module Bosh
             @instance.model.deployment.name,
             @desired_instance.job.default_network,
             desired_reservations,
-            @instance.current_state,
+            @instance.current_networks,
             @instance.availability_zone,
             @instance.index,
             @instance.uuid,
@@ -176,6 +187,10 @@ module Bosh
 
         def network_settings_hash
           network_settings.to_hash
+        end
+
+        def network_address(network_name)
+          network_settings.network_address(network_name)
         end
 
         def network_addresses
@@ -220,7 +235,7 @@ module Bosh
           # The agent job spec could be in legacy form.  job_spec cannot be,
           # though, because we got it from the spec function in job.rb which
           # automatically makes it non-legacy.
-          converted_current = Job.convert_from_legacy_spec(@instance.current_job_spec)
+          converted_current = InstanceGroup.convert_from_legacy_spec(@instance.current_job_spec)
           changed = job.spec != converted_current
           log_changes(__method__, converted_current, job.spec, @instance) if changed
           changed
@@ -234,7 +249,7 @@ module Bosh
           changed
         end
 
-        def currently_detached?
+        def already_detached?
           return false if new?
 
           @existing_instance.state == 'detached'
@@ -260,21 +275,21 @@ module Bosh
         def env_changed?
           job = @desired_instance.job
 
-          if @existing_instance && @existing_instance.env && job.env.spec != @existing_instance.env
-            log_changes(__method__, @existing_instance.vm.env, job.env.spec, @existing_instance)
+          if @existing_instance && @existing_instance.vm_env && job.env.spec != @existing_instance.vm_env
+            log_changes(__method__, @existing_instance.vm_env, job.env.spec, @existing_instance)
             return true
           end
           false
         end
 
         def stemcell_changed?
-          if @existing_instance && @instance.stemcell.name != @existing_instance.spec['stemcell']['name']
-            log_changes(__method__, @existing_instance.spec['stemcell']['name'], @instance.stemcell.name, @existing_instance)
+          if @existing_instance && @instance.stemcell.name != @existing_instance.spec_p('stemcell.name')
+            log_changes(__method__, @existing_instance.spec_p('stemcell.name'), @instance.stemcell.name, @existing_instance)
             return true
           end
 
-          if @existing_instance && @instance.stemcell.version != @existing_instance.spec['stemcell']['version']
-            log_changes(__method__, "version: #{@existing_instance.spec['stemcell']['version']}", "version: #{@instance.stemcell.version}", @existing_instance)
+          if @existing_instance && @instance.stemcell.version != @existing_instance.spec_p('stemcell.version')
+            log_changes(__method__, "version: #{@existing_instance.spec_p('stemcell.version')}", "version: #{@instance.stemcell.version}", @existing_instance)
             return true
           end
 
@@ -287,7 +302,7 @@ module Bosh
 
         def disk_size
           if @instance.model.nil?
-            raise DirectorError, "Instance `#{@instance}' model is not bound"
+            raise DirectorError, "Instance '#{@instance}' model is not bound"
           end
 
           if @instance.model.persistent_disk
@@ -299,7 +314,7 @@ module Bosh
 
         def disk_cloud_properties
           if @instance.model.nil?
-            raise DirectorError, "Instance `#{@instance}' model is not bound"
+            raise DirectorError, "Instance '#{@instance}' model is not bound"
           end
 
           if @instance.model.persistent_disk
@@ -312,7 +327,7 @@ module Bosh
 
       class ResurrectionInstancePlan < InstancePlan
         def network_settings_hash
-          @existing_instance.spec['networks']
+          @existing_instance.spec_p('networks')
         end
 
         def spec

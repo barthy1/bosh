@@ -2,7 +2,7 @@ module Bosh::Director
   module Api
     class SnapshotManager
       def create_deployment_snapshot_task(username, deployment, options = {})
-        JobQueue.new.enqueue(username, Jobs::SnapshotDeployment, 'snapshot deployment', [deployment.name, options])
+        JobQueue.new.enqueue(username, Jobs::SnapshotDeployment, 'snapshot deployment', [deployment.name, options], deployment)
       end
 
       def create_snapshot_task(username, instance, options)
@@ -10,7 +10,7 @@ module Bosh::Director
       end
 
       def delete_deployment_snapshots_task(username, deployment)
-        JobQueue.new.enqueue(username, Jobs::DeleteDeploymentSnapshots, 'delete deployment snapshots', [deployment.name])
+        JobQueue.new.enqueue(username, Jobs::DeleteDeploymentSnapshots, 'delete deployment snapshots', [deployment.name], deployment)
       end
 
       def delete_snapshots_task(username, snapshot_cids)
@@ -76,8 +76,7 @@ module Bosh::Director
             index: instance.index,
             director_name: Config.name,
             director_uuid: Config.uuid,
-            agent_id: instance.vm.agent_id,
-            instance_id: instance.vm_id
+            agent_id: instance.agent_id
         }
 
         instance.persistent_disks.each do |disk|

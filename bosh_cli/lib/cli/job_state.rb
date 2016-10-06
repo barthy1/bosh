@@ -46,22 +46,22 @@ module Bosh::Cli
     def change_job_state(new_state, job, index_or_id, operation_desc, force)
       @command.say("You are about to #{operation_desc.make_green}")
 
-      check_if_manifest_changed(@manifest.hash, force)
+      check_if_manifest_changed(force)
       unless @command.confirmed?("#{operation_desc.capitalize}?")
         @command.cancel_deployment
       end
 
       @command.nl
-      @command.say("Performing `#{operation_desc}'...")
+      @command.say("Performing '#{operation_desc}'...")
       @command.director.change_job_state(@manifest.name, @manifest.yaml, job, index_or_id, new_state, @options)
     end
 
 
-    def check_if_manifest_changed(manifest_hash, force)
-      other_changes_present = @command.inspect_deployment_changes(manifest_hash, show_empty_changeset: false)
+    def check_if_manifest_changed(force)
+      other_changes_present = @command.inspect_deployment_changes(@manifest, show_empty_changeset: false)
 
       if other_changes_present && !force
-        @command.err("Cannot perform job management when other deployment changes are present. Please use `--force' to override.")
+        @command.err("Cannot perform job management when other deployment changes are present. Please use '--force' to override.")
       end
     end
 

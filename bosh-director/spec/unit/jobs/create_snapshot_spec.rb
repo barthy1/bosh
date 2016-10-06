@@ -9,9 +9,10 @@ module Bosh::Director
 
     subject { described_class.new(instance.id, options) }
 
-    describe 'Resque job class expectations' do
+    describe 'DJ job class expectations' do
       let(:job_type) { :create_snapshot }
-      it_behaves_like 'a Resque job'
+      let(:queue) { :normal }
+      it_behaves_like 'a DJ job'
     end
 
     it 'tells the snapshot manager to create a snapshot' do

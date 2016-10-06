@@ -18,38 +18,36 @@ module Bosh::Director
       @keep_alive = keep_alive
       blobstore = App.instance.blobstores.blobstore
       log_bundles_cleaner = LogBundlesCleaner.new(blobstore, 60 * 60 * 24 * 10, logger) # 10 days
-      @logs_fetcher = LogsFetcher.new(event_log, @instance_manager, log_bundles_cleaner, logger)
+      @logs_fetcher = LogsFetcher.new(@instance_manager, log_bundles_cleaner, logger)
     end
 
     def perform
       deployment_model = @deployment_manager.find_by_name(@deployment_name)
-      deployment_manifest_hash = Psych.load(deployment_model.manifest)
-      deployment_name = deployment_manifest_hash['name']
+      deployment_manifest = Manifest.load_from_text(deployment_model.manifest, deployment_model.cloud_config, deployment_model.runtime_config)
+      deployment_name = deployment_manifest.to_hash['name']
       with_deployment_lock(deployment_name) do
-        cloud_config_model = deployment_model.cloud_config
-
         deployment = nil
         job = nil
 
-        event_log.begin_stage('Preparing deployment', 1)
-        event_log.track('Preparing deployment') do
+        event_log_stage = Config.event_log.begin_stage('Preparing deployment', 1)
+        event_log_stage.advance_and_track('Preparing deployment') do
           planner_factory = DeploymentPlan::PlannerFactory.create(logger)
-          deployment = planner_factory.create_from_manifest(deployment_manifest_hash, cloud_config_model, {})
+          deployment = planner_factory.create_from_manifest(deployment_manifest, deployment_model.cloud_config, deployment_model.runtime_config, {})
           deployment.bind_models
-          job = deployment.job(@errand_name)
+          job = deployment.instance_group(@errand_name)
 
           if job.nil?
-            raise JobNotFound, "Errand `#{@errand_name}' doesn't exist"
+            raise JobNotFound, "Errand '#{@errand_name}' doesn't exist"
           end
 
-          unless job.can_run_as_errand?
+          unless job.is_errand?
             raise RunErrandError,
-              "Job `#{job.name}' is not an errand. To mark a job as an errand " +
+              "Instance group '#{job.name}' is not an errand. To mark an instance group as an errand " +
                 "set its lifecycle to 'errand' in the deployment manifest."
           end
 
           if job.instances.empty?
-            raise InstanceNotFound, "Instance `#{@deployment_name}/#{@errand_name}/0' doesn't exist"
+            raise InstanceNotFound, "Instance '#{@deployment_name}/#{@errand_name}/0' doesn't exist"
           end
 
           logger.info('Starting to prepare for deployment')
@@ -60,7 +58,7 @@ module Bosh::Director
 
         deployment.compile_packages
 
-        runner = Errand::Runner.new(job, result_file, @instance_manager, event_log, @logs_fetcher)
+        runner = Errand::Runner.new(job, result_file, @instance_manager, @logs_fetcher)
 
         cancel_blk = lambda {
           begin
@@ -85,7 +83,7 @@ module Bosh::Director
     private
 
     def with_updated_instances(deployment, job, &blk)
-      job_manager = Errand::JobManager.new(deployment, job, Config.cloud, event_log, logger)
+      job_manager = Errand::JobManager.new(deployment, job, Config.cloud, logger)
 
       begin
         update_instances(job_manager)

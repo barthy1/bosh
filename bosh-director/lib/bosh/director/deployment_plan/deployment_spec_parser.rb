@@ -15,11 +15,22 @@ module Bosh::Director
         @deployment_manifest = deployment_manifest
         @job_states = safe_property(options, 'job_states', :class => Hash, :default => {})
 
+        parse_options = {}
+        if options['canaries']
+          parse_options['canaries'] = options['canaries']
+          @logger.debug("Using canaries value #{options['canaries']} given in a command line.")
+        end
+
+        if options['max_in_flight']
+          parse_options['max_in_flight'] = options['max_in_flight']
+          @logger.debug("Using max_in_flight value #{options['max_in_flight']} given in a command line.")
+        end
+
         parse_stemcells
         parse_properties
         parse_releases
-        parse_update
-        parse_jobs
+        parse_update(parse_options)
+        parse_jobs(parse_options)
 
         @deployment
       end
@@ -33,13 +44,9 @@ module Bosh::Director
             if @deployment.stemcells.has_key?(alias_val)
               raise StemcellAliasAlreadyExists, "Duplicate stemcell alias '#{alias_val}'"
             end
-            @deployment.add_stemcell(Stemcell.new(stemcell_hash))
+            @deployment.add_stemcell(Stemcell.parse(stemcell_hash))
           end
         end
-      end
-
-      def parse_name
-        safe_property(@deployment_manifest, 'name', :class => String)
       end
 
       def parse_properties
@@ -68,18 +75,28 @@ module Bosh::Director
         end
       end
 
-      def parse_update
+      def parse_update(parse_options)
         update_spec = safe_property(@deployment_manifest, 'update', :class => Hash)
-        @deployment.update = UpdateConfig.new(update_spec)
+        @deployment.update = UpdateConfig.new(update_spec.merge(parse_options))
       end
 
-      def parse_jobs
+      def parse_jobs(parse_options)
+        if @deployment_manifest.has_key?('jobs') && @deployment_manifest.has_key?('instance_groups')
+          raise JobBothInstanceGroupAndJob, "Deployment specifies both jobs and instance_groups keys, only one is allowed"
+        end
+
         jobs = safe_property(@deployment_manifest, 'jobs', :class => Array, :default => [])
+        instance_groups = safe_property(@deployment_manifest, 'instance_groups', :class => Array, :default => [])
+
+        if !instance_groups.empty?
+          jobs = instance_groups
+        end
+
         jobs.each do |job_spec|
           # get state specific for this job or all jobs
           state_overrides = @job_states.fetch(job_spec['name'], @job_states.fetch('*', {}))
           job_spec = job_spec.recursive_merge(state_overrides)
-          @deployment.add_job(Job.parse(@deployment, job_spec, @event_log, @logger))
+          @deployment.add_instance_group(InstanceGroup.parse(@deployment, job_spec, @event_log, @logger, parse_options))
         end
       end
     end

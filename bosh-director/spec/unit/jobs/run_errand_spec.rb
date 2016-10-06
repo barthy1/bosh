@@ -13,9 +13,10 @@ module Bosh::Director
       manifest_hash
     end
 
-    describe 'Resque job class expectations' do
+    describe 'DJ job class expectations' do
       let(:job_type) { :run_errand }
-      it_behaves_like 'a Resque job'
+      let(:queue) { :normal }
+      it_behaves_like 'a DJ job'
     end
 
     describe '#perform' do
@@ -28,8 +29,6 @@ module Bosh::Director
           )
         end
 
-        before { allow(Config).to receive(:event_log).with(no_args).and_return(event_log) }
-        let(:event_log) { Bosh::Director::EventLog::Log.new }
         let(:cloud) {double('cloud')}
 
         before do
@@ -63,11 +62,11 @@ module Bosh::Director
         let(:cloud_config) { Models::CloudConfig.make }
 
         context 'when job representing an errand exists' do
-          let(:deployment_job) { instance_double('Bosh::Director::DeploymentPlan::Job', name: 'fake-errand-name', needed_instance_plans: []) }
-          before { allow(planner).to receive(:job).with('fake-errand-name').and_return(deployment_job) }
+          let(:deployment_job) { instance_double('Bosh::Director::DeploymentPlan::InstanceGroup', name: 'fake-errand-name', needed_instance_plans: []) }
+          before { allow(planner).to receive(:instance_group).with('fake-errand-name').and_return(deployment_job) }
 
           context 'when job can run as an errand (usually means lifecycle: errand)' do
-            before { allow(deployment_job).to receive(:can_run_as_errand?).and_return(true) }
+            before { allow(deployment_job).to receive(:is_errand?).and_return(true) }
             before { allow(deployment_job).to receive(:bind_instances) }
 
             context 'when job has at least 1 instance' do
@@ -96,14 +95,14 @@ module Bosh::Director
 
               before do
                 allow(LogsFetcher).to receive(:new).
-                  with(event_log, be_a(Api::InstanceManager), log_bundles_cleaner, logger).
+                  with(be_a(Api::InstanceManager), log_bundles_cleaner, logger).
                   and_return(logs_fetcher)
               end
               let(:logs_fetcher) { instance_double('Bosh::Director::LogsFetcher') }
 
               before do
                 allow(Errand::JobManager).to receive(:new).
-                  with(planner, deployment_job, cloud, event_log, logger).
+                  with(planner, deployment_job, cloud, logger).
                   and_return(job_manager)
               end
               let(:job_manager) do
@@ -116,7 +115,7 @@ module Bosh::Director
 
               before do
                 allow(Errand::Runner).to receive(:new).
-                  with(deployment_job, result_file, be_a(Api::InstanceManager), event_log, logs_fetcher).
+                  with(deployment_job, result_file, be_a(Api::InstanceManager), logs_fetcher).
                   and_return(runner)
               end
               let(:runner) { instance_double('Bosh::Director::Errand::Runner') }
@@ -265,20 +264,20 @@ module Bosh::Director
           end
 
           context "when job cannot run as an errand (e.g. marked as 'lifecycle: service')" do
-            before { allow(deployment_job).to receive(:can_run_as_errand?).and_return(false) }
+            before { allow(deployment_job).to receive(:is_errand?).and_return(false) }
 
             it 'raises an error because non-errand jobs cannot be used with run errand cmd' do
               allow(subject).to receive(:with_deployment_lock).and_yield
 
               expect {
                 subject.perform
-              }.to raise_error(RunErrandError, /Job `fake-errand-name' is not an errand/)
+              }.to raise_error(RunErrandError, /Instance group 'fake-errand-name' is not an errand/)
             end
           end
         end
 
         context 'when job representing an errand does not exist' do
-          before { allow(planner).to receive(:job).with('fake-errand-name').and_return(nil) }
+          before { allow(planner).to receive(:instance_group).with('fake-errand-name').and_return(nil) }
 
           it 'raises an error because user asked to run an unknown errand' do
             allow(subject).to receive(:with_deployment_lock).and_yield

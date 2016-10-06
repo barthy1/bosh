@@ -4,13 +4,44 @@ module Bosh::Director
   describe DeploymentPlan::CompilationInstancePool do
     let(:instance_reuser) { InstanceReuser.new }
     let(:cloud) { instance_double('Bosh::Cloud') }
-    let(:stemcell) { instance_double(DeploymentPlan::Stemcell, model: Models::Stemcell.make, spec: {'name' => 'stemcell-name'}) }
-    let(:another_stemcell) { instance_double(DeploymentPlan::Stemcell, model: Models::Stemcell.make, spec: {'name' => 'stemcell-name'}) }
-    let(:vm_deleter) { VmDeleter.new(cloud, Config.logger) }
-    let(:vm_creator) { VmCreator.new(cloud, Config.logger, vm_deleter, disk_manager, job_renderer) }
+
+    let(:stemcell) do
+      model = Models::Stemcell.make(cid: 'stemcell-cid', name: 'stemcell-name')
+      stemcell = DeploymentPlan::Stemcell.new('stemcell-name-alias', 'stemcell-name', nil, model.version)
+      stemcell.bind_model(deployment_model)
+      stemcell
+    end
+
+    let(:another_stemcell) do
+      model = Models::Stemcell.make(cid: 'another-stemcell-cid', name: 'stemcell-name')
+      stemcell = DeploymentPlan::Stemcell.new('stemcell-name-alias', 'stemcell-name', nil, model.version)
+      stemcell.bind_model(deployment_model)
+      stemcell
+    end
+
+    let(:different_stemcell) do
+      model = Models::Stemcell.make(cid: 'different-stemcell-cid', name: 'different-stemcell-name')
+      stemcell = DeploymentPlan::Stemcell.new('stemcell-name-diff-alias', 'different-stemcell-name', nil, model.version)
+      stemcell.bind_model(deployment_model)
+      stemcell
+    end
+
+    let(:vm_deleter) { VmDeleter.new(cloud, Config.logger, false, false) }
+    let(:arp_flusher) { ArpFlusher.new }
+    let(:vm_creator) { VmCreator.new(cloud, Config.logger, vm_deleter, disk_manager, job_renderer, arp_flusher) }
     let(:job_renderer) { instance_double(JobRenderer, render_job_instance: nil) }
     let(:disk_manager) {DiskManager.new(cloud, logger)}
-    let(:compilation_config) { instance_double('Bosh::Director::DeploymentPlan::CompilationConfig') }
+    let(:compilation_config) do
+      compilation_spec = {
+        'workers' => n_workers,
+        'network' => 'a',
+        'env' => compilation_env,
+        'cloud_properties' => cloud_properties,
+        'reuse_compilation_vms' => false,
+        'az' => '',
+      }
+      DeploymentPlan::CompilationConfig.new(compilation_spec, {}, [])
+    end
     let(:deployment_model) { Models::Deployment.make(name: 'mycloud') }
     let(:deployment_plan) do
       instance_double(Bosh::Director::DeploymentPlan::Planner,
@@ -23,16 +54,14 @@ module Bosh::Director
     end
     let(:subnet) {instance_double('Bosh::Director::DeploymentPlan::ManualNetworkSubnet', range: NetAddr::CIDR.create('192.168.0.0/24'))}
     let(:network) do
-      instance_double('Bosh::Director::DeploymentPlan::ManualNetwork', name: 'network_name', subnets: [subnet])
+      instance_double('Bosh::Director::DeploymentPlan::ManualNetwork', name: 'a', subnets: [subnet])
     end
     let(:n_workers) { 3 }
-    let(:vm_model) { Models::Vm.make }
-    let(:another_vm_model) { Models::Vm.make }
     let(:cloud_properties) { { 'cloud' => 'properties'} }
     let(:compilation_env) { { 'compilation' => 'environment'} }
     let(:agent_client) { instance_double('Bosh::Director::AgentClient') }
     let(:another_agent_client) { instance_double('Bosh::Director::AgentClient') }
-    let(:network_settings) { {'network_name' => {'property' => 'settings'}} }
+    let(:network_settings) { {'a' => {'property' => 'settings'}} }
     let(:trusted_certs) { "Trust me. I know what I'm doing." }
     let(:thread_pool) do
       thread_pool = instance_double('Bosh::Director::ThreadPool')
@@ -43,31 +72,24 @@ module Bosh::Director
     end
     let(:instance_deleter) { instance_double(Bosh::Director::InstanceDeleter) }
     let(:ip_provider) {instance_double(DeploymentPlan::IpProvider, reserve: nil, release: nil)}
-
-    let(:compilation_instance_pool) { DeploymentPlan::CompilationInstancePool.new(instance_reuser, vm_creator, deployment_plan, logger, instance_deleter) }
+    let(:max_instance_count) { 1 }
+    let(:compilation_instance_pool) { DeploymentPlan::CompilationInstancePool.new(instance_reuser, vm_creator, deployment_plan, logger, instance_deleter, max_instance_count) }
     let(:expected_network_settings) do
       {
-        'network_name' => {
-          'network_name' => {'property' => 'settings'},
+        'a' => {
+          'a' => {'property' => 'settings'},
         }
       }
     end
-
+    let(:event_manager) {Api::EventManager.new(true)}
+    let(:task_id) {42}
+    let(:update_job) {instance_double(Bosh::Director::Jobs::UpdateDeployment, username: 'user', task_id: task_id, event_manager: event_manager)}
     before do
-      allow(compilation_config).to receive_messages(
-          network_name: 'network_name',
-          env: compilation_env,
-          cloud_properties: cloud_properties,
-          workers: n_workers,
-          reuse_compilation_vms: false,
-          availability_zone: availability_zone
-        )
+      allow(cloud).to receive(:create_vm)
       allow(network).to receive(:network_settings).with(instance_of(DesiredNetworkReservation), ['dns', 'gateway'], availability_zone).and_return(network_settings)
-      allow(vm_creator).to receive(:create).and_return(vm_model, another_vm_model)
       allow(Config).to receive(:trusted_certs).and_return(trusted_certs)
       allow(Config).to receive(:cloud).and_return(instance_double('Bosh::Cloud'))
-      allow(AgentClient).to receive(:with_vm).with(vm_model).and_return(agent_client)
-      allow(AgentClient).to receive(:with_vm).with(another_vm_model).and_return(another_agent_client)
+      allow(AgentClient).to receive(:with_vm_credentials_and_agent_id).and_return(agent_client)
       allow(agent_client).to receive(:wait_until_ready)
       allow(agent_client).to receive(:update_settings)
       allow(agent_client).to receive(:get_state)
@@ -77,8 +99,9 @@ module Bosh::Director
       allow(another_agent_client).to receive(:get_state)
       allow(another_agent_client).to receive(:apply)
       allow(ThreadPool).to receive_messages(new: thread_pool)
-      allow(deployment_plan).to receive(:network).with('network_name').and_return(network)
+      allow(deployment_plan).to receive(:network).with('a').and_return(network)
       allow(instance_deleter).to receive(:delete_instance_plan)
+      allow(Config).to receive(:current_job).and_return(update_job)
     end
     let(:availability_zone) { nil }
 
@@ -93,43 +116,87 @@ module Bosh::Director
       end
 
       it 'defers to the vm creator to create a vm' do
-        allow(SecureRandom).to receive(:uuid).and_return('deadbeef', 'uuid-1')
-        expect(vm_creator).to receive(:create).with(
-            deployment_model,
-            stemcell,
+        allow(SecureRandom).to receive(:uuid).and_return('deadbeef', 'instance-uuid-1', 'agent-id')
+        expect(cloud).to receive(:create_vm).with(
+            'agent-id',
+            stemcell.cid,
             cloud_properties,
             expected_network_settings,
             [],
             compilation_env
-          ).and_return(vm_model)
+          )
         action
       end
 
       it 'applies initial vm state' do
-        allow(SecureRandom).to receive(:uuid).and_return('deadbeef', 'uuid-1')
+        allow(SecureRandom).to receive(:uuid).and_return('deadbeef', 'instance-uuid-1')
         expected_apply_spec = {
           'deployment' => 'mycloud',
           'job' => {
             'name' => 'compilation-deadbeef'
           },
           'index' => 0,
-          'id' => 'uuid-1',
+          'id' => 'instance-uuid-1',
           'networks' => expected_network_settings,
         }
         expect(agent_client).to receive(:apply).with(expected_apply_spec)
 
         action
-        expect(vm_model.trusted_certs_sha1).to eq(Digest::SHA1.hexdigest(trusted_certs))
+
+        compilation_instance = Models::Instance.find(uuid: 'instance-uuid-1')
+        expect(compilation_instance.trusted_certs_sha1).to eq(Digest::SHA1.hexdigest(trusted_certs))
+      end
+
+      it 'should record creation event' do
+        allow(SecureRandom).to receive(:uuid).and_return('deadbeef', 'instance-uuid-1')
+        expect {
+          action
+        }.to change {
+          Bosh::Director::Models::Event.count }.from(0).to(4)
+
+        event_1 = Bosh::Director::Models::Event.first
+        expect(event_1.user).to eq('user')
+        expect(event_1.action).to eq('create')
+        expect(event_1.object_type).to eq('instance')
+        expect(event_1.object_name).to eq('compilation-deadbeef/instance-uuid-1')
+        expect(event_1.task).to eq("#{task_id}")
+        expect(event_1.deployment).to eq('mycloud')
+        expect(event_1.instance).to eq('compilation-deadbeef/instance-uuid-1')
+
+        event_2 = Bosh::Director::Models::Event.order(:id).last
+        expect(event_2.parent_id).to eq(1)
+        expect(event_2.user).to eq('user')
+        expect(event_2.action).to eq('create')
+        expect(event_2.object_type).to eq('instance')
+        expect(event_2.object_name).to eq('compilation-deadbeef/instance-uuid-1')
+        expect(event_2.task).to eq("#{task_id}")
+        expect(event_2.deployment).to eq('mycloud')
+        expect(event_2.instance).to eq('compilation-deadbeef/instance-uuid-1')
       end
 
       context 'when instance creation fails' do
-        it 'deletes the vm from the cloud' do
-          expect { action_that_raises }.to raise_error(create_instance_error)
+        context 'when keep_unreachable_vms is set' do
+          before { Config.keep_unreachable_vms = true }
+
+          it 'does not delete instance' do
+            expect { action_that_raises }.to raise_error(create_instance_error)
+            expect(instance_deleter).to_not have_received(:delete_instance_plan)
+          end
         end
 
-        it 'deletes the instance' do
-          expect { action_that_raises }.to raise_error(create_instance_error)
-          expect(instance_deleter).to have_received(:delete_instance_plan)
+        context 'when keep_unreachable_vms is not set' do
+          it 'deletes the instance' do
+            expect { action_that_raises }.to raise_error(create_instance_error)
+            expect(instance_deleter).to have_received(:delete_instance_plan)
+          end
+
+          it 'should record creation event with error' do
+            expect {
+              action_that_raises
+            }.to raise_error (RuntimeError)
+            event_2 = Bosh::Director::Models::Event.order(:id).last
+            expect(event_2.error).to eq("failed to create instance")
+          end
         end
       end
     end
@@ -137,7 +204,26 @@ module Bosh::Director
     describe 'with_reused_vm' do
       it_behaves_like 'a compilation vm pool' do
         let(:action) { compilation_instance_pool.with_reused_vm(stemcell) {} }
-        let(:action_that_raises) { compilation_instance_pool.with_reused_vm(stemcell) { raise(create_instance_error) } }
+        let(:action_that_raises) do
+          allow(vm_creator).to receive(:create_for_instance_plan).and_raise(create_instance_error)
+          compilation_instance_pool.with_reused_vm(stemcell)
+        end
+      end
+
+      context 'when the the pool is full' do
+        context 'and there are no available instances for the given stemcell' do
+          it 'destroys the idle instance made for a different stemcell' do
+            compilation_instance_pool.with_reused_vm(stemcell) {|i| }
+            expect(instance_deleter).to_not have_received(:delete_instance_plan)
+            expect(instance_reuser.get_num_instances(stemcell)).to eq(1)
+
+            compilation_instance_pool.with_reused_vm(different_stemcell) {|i| }
+
+            expect(instance_reuser.get_num_instances(stemcell)).to eq(0)
+            expect(instance_reuser.get_num_instances(different_stemcell)).to eq(1)
+            expect(instance_deleter).to have_received(:delete_instance_plan)
+          end
+        end
       end
 
       context 'after a vm is created' do
@@ -155,29 +241,71 @@ module Bosh::Director
       end
 
       context 'when az is specified' do
-        before do
-          allow(compilation_config).to receive_messages(
-              network_name: 'network_name',
-              env: compilation_env,
-              cloud_properties: cloud_properties,
-              workers: n_workers,
-              reuse_compilation_vms: false,
-              availability_zone: availability_zone
-            )
+        let(:compilation_config) do
+          compilation_spec = {
+            'workers' => n_workers,
+            'network' => 'a',
+            'env' => compilation_env,
+            'cloud_properties' => cloud_properties,
+            'reuse_compilation_vms' => false,
+            'az' => 'foo-az',
+          }
+          DeploymentPlan::CompilationConfig.new(compilation_spec, {'foo-az' => availability_zone }, [])
         end
 
         let(:compilation_instance_pool) do
-          DeploymentPlan::CompilationInstancePool.new(instance_reuser, vm_creator, deployment_plan, logger, instance_deleter)
+          DeploymentPlan::CompilationInstancePool.new(instance_reuser, vm_creator, deployment_plan, logger, instance_deleter, 4)
         end
-        let(:availability_zone) { instance_double('Bosh::Director::DeploymentPlan::AvailabilityZone', name: 'foo-az') }
-        it 'spins up vm in the az' do
-          allow(availability_zone).to receive(:cloud_properties).and_return({'foo' => 'az-foo', 'zone' => 'the-right-one'})
 
+        let(:availability_zone) { DeploymentPlan::AvailabilityZone.new('foo-az', cloud_properties) }
+
+        it 'spins up vm in the az' do
           vm_instance = nil
           compilation_instance_pool.with_reused_vm(stemcell) do |instance|
             vm_instance = instance
           end
           expect(vm_instance.availability_zone_name).to eq('foo-az')
+        end
+
+        it 'saves az name in database' do
+          allow(SecureRandom).to receive(:uuid).and_return('deadbeef', 'instance-uuid-1')
+          compilation_instance_pool.with_reused_vm(stemcell) {}
+
+          expect(Models::Instance.find(uuid: 'instance-uuid-1').availability_zone).to eq('foo-az')
+        end
+      end
+
+      context 'when vm_type is specified' do
+        let(:compilation_config) do
+          compilation_spec = {
+              'workers' => n_workers,
+              'network' => 'a',
+              'vm_type' => 'type-a'
+          }
+          vm_type_spec = {
+            'name' => 'type-a',
+            'cloud_properties' => {
+              'instance_type' => 'big'
+            }
+          }
+          DeploymentPlan::CompilationConfig.new(compilation_spec, {}, [DeploymentPlan::VmType.new(vm_type_spec)])
+        end
+
+        let(:compilation_instance_pool) do
+          DeploymentPlan::CompilationInstancePool.new(instance_reuser, vm_creator, deployment_plan, logger, instance_deleter, 4)
+        end
+
+        it 'spins up vm with the correct VM type' do
+          expect(cloud).to receive(:create_vm).with(
+              anything,
+              anything,
+              {'instance_type' => 'big'},
+              anything,
+              anything,
+              anything
+            )
+
+          compilation_instance_pool.with_reused_vm(stemcell) {}
         end
       end
 
@@ -187,6 +315,17 @@ module Bosh::Director
           expect {
             compilation_instance_pool.with_reused_vm(stemcell) { raise create_instance_error }
           }.to raise_error(create_instance_error)
+        end
+
+        context 'when keep_unreachable_vms is set' do
+          before { Config.keep_unreachable_vms = true }
+
+          it 'removes the vm from the reuser so that it is not cleaned up later when reuser deletes all instances' do
+            expect(instance_reuser).to receive(:remove_instance)
+            expect {
+              compilation_instance_pool.with_reused_vm(stemcell) { raise create_instance_error }
+            }.to raise_error(create_instance_error)
+          end
         end
       end
 
@@ -210,7 +349,8 @@ module Bosh::Director
       end
 
       describe 'delete_instances' do
-        let(:number_of_workers) { 1 }
+        let(:max_instance_count) { 2 }
+
         before do
           compilation_instance_pool.with_reused_vm(stemcell) {}
           compilation_instance_pool.with_reused_vm(another_stemcell) {}
@@ -218,12 +358,12 @@ module Bosh::Director
 
         it 'removes the vm from the reuser' do
           expect(instance_reuser.get_num_instances(stemcell)).to eq(1)
-          compilation_instance_pool.delete_instances(number_of_workers)
+          compilation_instance_pool.delete_instances(max_instance_count)
           expect(instance_reuser.get_num_instances(stemcell)).to eq(0)
         end
 
         it 'deletes the instance' do
-          compilation_instance_pool.delete_instances(number_of_workers)
+          compilation_instance_pool.delete_instances(max_instance_count)
           expect(instance_deleter).to have_received(:delete_instance_plan).exactly(2).times
         end
       end
@@ -232,9 +372,11 @@ module Bosh::Director
     describe 'with_single_use_vm' do
       it_behaves_like 'a compilation vm pool' do
         let(:action) { compilation_instance_pool.with_single_use_vm(stemcell) {} }
-        let(:action_that_raises) { compilation_instance_pool.with_single_use_vm(stemcell) { raise create_instance_error } }
+        let(:action_that_raises) do
+          allow(vm_creator).to receive(:create_for_instance_plan).and_raise(create_instance_error)
+          compilation_instance_pool.with_single_use_vm(stemcell)
+        end
       end
     end
   end
 end
-

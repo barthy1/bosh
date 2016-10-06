@@ -7,7 +7,7 @@ describe 'Bosh::Director::DeploymentPlan::ManualNetworkSubnet' do
     BD::DeploymentPlan::ManualNetworkSubnet.parse(@network.name, properties, availability_zones, reserved_ranges)
   end
 
-  let(:reserved_ranges) { [] }
+  let(:reserved_ranges) { {} }
   let(:instance) { instance_double(BD::DeploymentPlan::Instance, model: BD::Models::Instance.make) }
 
   def create_static_reservation(ip)
@@ -48,6 +48,35 @@ describe 'Bosh::Director::DeploymentPlan::ManualNetworkSubnet' do
           []
         )
       }.to raise_error(BD::ValidationMissingField)
+    end
+
+    context 'when generating log output' do
+      before do
+        allow(Bosh::Director::Config).to receive(:logger).and_return(logger)
+      end
+      let(:reserved_ranges) {
+        Set.new [
+                    NetAddr::CIDR.create('192.168.2.2/32'),
+                    NetAddr::CIDR.create('192.168.0.0/24'),
+                    NetAddr::CIDR.create('192.168.1.0/24')
+                ]
+      }
+      it 'should log a reasonable debug message' do
+        expect(logger).to receive(:debug).with('reserved ranges 192.168.2.2, 192.168.0.0-192.168.0.255, 192.168.1.0-192.168.1.255')
+        subnet = make_subnet(
+            {
+                'range' => '192.168.0.0/24',
+                'gateway' => '192.168.0.254',
+                'reserved' => [
+                    '192.168.0.10 - 192.168.0.20',
+                    '192.168.0.30 - 192.168.0.50',
+                    '192.168.0.100'
+                ],
+                'cloud_properties' => {'foo' => 'bar'}
+            },
+            [],
+        )
+      end
     end
 
     context 'gateway property' do
@@ -186,8 +215,22 @@ describe 'Bosh::Director::DeploymentPlan::ManualNetworkSubnet' do
           []
         )
       }.to raise_error(Bosh::Director::NetworkReservedIpOutOfRange,
-          "Reserved IP `192.167.0.5' is out of " +
-            "network `net_a' range")
+          "Reserved IP '192.167.0.5' is out of " +
+            "network 'net_a' range")
+    end
+
+    it 'should allow the reserved range to include the gateway, broadcast and network addresses' do
+      expect {
+        make_subnet(
+          {
+            'range' => '192.168.0.0/24',
+            'reserved' => ['192.168.0.0','192.168.0.1','192.168.0.255'],
+            'gateway' => '192.168.0.1',
+            'cloud_properties' => {'foo' => 'bar'}
+          },
+          []
+        )
+      }.to_not raise_error
     end
 
     it 'should fail when the static IP is not valid' do
@@ -202,8 +245,8 @@ describe 'Bosh::Director::DeploymentPlan::ManualNetworkSubnet' do
           []
         )
       }.to raise_error(Bosh::Director::NetworkStaticIpOutOfRange,
-          "Static IP `192.167.0.5' is out of " +
-            "network `net_a' range")
+          "Static IP '192.167.0.5' is out of " +
+            "network 'net_a' range")
     end
 
     it 'should fail when the static IP is in reserved range' do
@@ -219,8 +262,7 @@ describe 'Bosh::Director::DeploymentPlan::ManualNetworkSubnet' do
           []
         )
       }.to raise_error(Bosh::Director::NetworkStaticIpOutOfRange,
-          "Static IP `192.168.0.5' is out of " +
-            "network `net_a' range")
+          "Static IP '192.168.0.5' is in network 'net_a' reserved range")
     end
 
     describe 'availability zone(s)' do

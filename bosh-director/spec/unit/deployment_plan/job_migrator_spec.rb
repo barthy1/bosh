@@ -5,7 +5,7 @@ module Bosh::Director
     subject(:job_migrator) { described_class.new(deployment_plan, logger) }
 
     let(:etcd_job) do
-      DeploymentPlan::Job.parse(deployment_plan, job_spec, Config.event_log, logger)
+      DeploymentPlan::InstanceGroup.parse(deployment_plan, job_spec, Config.event_log, logger)
     end
 
     let(:etcd_job_spec) do
@@ -86,7 +86,7 @@ module Bosh::Director
     end
 
     describe 'find_existing_instances' do
-      context 'when job needs to be migrated from' do
+      context 'when instance group needs to be migrated from' do
         let(:etcd_job_spec) do
           job = Bosh::Spec::Deployments.simple_job(name: 'etcd', instances: 4)
           job['azs'] = ['z1', 'z2']
@@ -97,19 +97,19 @@ module Bosh::Director
           job
         end
 
-        context 'when migrated_from job exists in previous deployment' do
-          context 'when migrating_to job does not have existing instances' do
+        context 'when migrated_from instance group exists in previous deployment' do
+          context 'when migrating_to instance group does not have existing instances' do
             let!(:migrated_job_instances) do
               instances = []
-              instances << Models::Instance.make(job: 'etcd_z1', index: 0, deployment: deployment_model, vm: nil, uuid: 'uuid-1')
-              instances << Models::Instance.make(job: 'etcd_z1', index: 1, deployment: deployment_model, vm: nil, uuid: 'uuid-2')
-              instances << Models::Instance.make(job: 'etcd_z1', index: 2, deployment: deployment_model, vm: nil, uuid: 'uuid-3')
-              instances << Models::Instance.make(job: 'etcd_z2', index: 0, deployment: deployment_model, vm: nil, uuid: 'uuid-4')
-              instances << Models::Instance.make(job: 'etcd_z2', index: 1, deployment: deployment_model, vm: nil, uuid: 'uuid-5')
+              instances << Models::Instance.make(job: 'etcd_z1', index: 0, deployment: deployment_model, uuid: 'uuid-1')
+              instances << Models::Instance.make(job: 'etcd_z1', index: 1, deployment: deployment_model, uuid: 'uuid-2')
+              instances << Models::Instance.make(job: 'etcd_z1', index: 2, deployment: deployment_model, uuid: 'uuid-3')
+              instances << Models::Instance.make(job: 'etcd_z2', index: 0, deployment: deployment_model, uuid: 'uuid-4')
+              instances << Models::Instance.make(job: 'etcd_z2', index: 1, deployment: deployment_model, uuid: 'uuid-5')
               instances
             end
 
-            it 'returns existing instances of the migrated_from jobs' do
+            it 'returns existing instances of the migrated_from instance groups' do
               migrated_instances = job_migrator.find_existing_instances(etcd_job)
               expect(migrated_instances).to contain_exactly(
                 be_a_migrated_instance(migrated_job_instances[0], 'z1'),
@@ -120,37 +120,37 @@ module Bosh::Director
               )
             end
 
-            it 'logs the jobs being migrated' do
-              expect(logger).to receive(:debug).with("Migrating job 'etcd_z1/uuid-1 (0)' to 'etcd/uuid-1 (0)'")
-              expect(logger).to receive(:debug).with("Migrating job 'etcd_z1/uuid-2 (1)' to 'etcd/uuid-2 (1)'")
-              expect(logger).to receive(:debug).with("Migrating job 'etcd_z1/uuid-3 (2)' to 'etcd/uuid-3 (2)'")
-              expect(logger).to receive(:debug).with("Migrating job 'etcd_z2/uuid-4 (0)' to 'etcd/uuid-4 (0)'")
-              expect(logger).to receive(:debug).with("Migrating job 'etcd_z2/uuid-5 (1)' to 'etcd/uuid-5 (1)'")
+            it 'logs the instance groups being migrated' do
+              expect(logger).to receive(:debug).with("Migrating instance group 'etcd_z1/uuid-1 (0)' to 'etcd/uuid-1 (0)'")
+              expect(logger).to receive(:debug).with("Migrating instance group 'etcd_z1/uuid-2 (1)' to 'etcd/uuid-2 (1)'")
+              expect(logger).to receive(:debug).with("Migrating instance group 'etcd_z1/uuid-3 (2)' to 'etcd/uuid-3 (2)'")
+              expect(logger).to receive(:debug).with("Migrating instance group 'etcd_z2/uuid-4 (0)' to 'etcd/uuid-4 (0)'")
+              expect(logger).to receive(:debug).with("Migrating instance group 'etcd_z2/uuid-5 (1)' to 'etcd/uuid-5 (1)'")
               job_migrator.find_existing_instances(etcd_job)
             end
           end
 
-          context 'when migrating_to job already has existing instances' do
+          context 'when migrating_to instance group already has existing instances' do
             let!(:existing_job_instances) do
               job_instances = []
-              job_instances << Models::Instance.make(job: 'etcd', deployment: deployment_model, vm: nil, index: 0, bootstrap: true, uuid: 'uuid-7')
-              job_instances << Models::Instance.make(job: 'etcd', deployment: deployment_model, vm: nil, index: 1, uuid: 'uuid-8')
+              job_instances << Models::Instance.make(job: 'etcd', deployment: deployment_model, index: 0, bootstrap: true, uuid: 'uuid-7')
+              job_instances << Models::Instance.make(job: 'etcd', deployment: deployment_model, index: 1, uuid: 'uuid-8')
               job_instances
             end
 
             let!(:migrated_job_instances) do
               instances = []
-              instances << Models::Instance.make(job: 'etcd_z1', index: 0, deployment: deployment_model, vm: nil, uuid: 'uuid-1')
-              instances << Models::Instance.make(job: 'etcd_z1', index: 1, deployment: deployment_model, vm: nil, uuid: 'uuid-2')
-              instances << Models::Instance.make(job: 'etcd_z1', index: 2, deployment: deployment_model, vm: nil, uuid: 'uuid-3')
-              instances << Models::Instance.make(job: 'etcd_z2', index: 0, deployment: deployment_model, vm: nil, uuid: 'uuid-4')
-              instances << Models::Instance.make(job: 'etcd_z2', index: 1, deployment: deployment_model, vm: nil, uuid: 'uuid-5')
-              instances << Models::Instance.make(job: 'etcd_z2', index: 2, deployment: deployment_model, vm: nil, uuid: 'uuid-6')
+              instances << Models::Instance.make(job: 'etcd_z1', index: 0, deployment: deployment_model, uuid: 'uuid-1')
+              instances << Models::Instance.make(job: 'etcd_z1', index: 1, deployment: deployment_model, uuid: 'uuid-2')
+              instances << Models::Instance.make(job: 'etcd_z1', index: 2, deployment: deployment_model, uuid: 'uuid-3')
+              instances << Models::Instance.make(job: 'etcd_z2', index: 0, deployment: deployment_model, uuid: 'uuid-4')
+              instances << Models::Instance.make(job: 'etcd_z2', index: 1, deployment: deployment_model, uuid: 'uuid-5')
+              instances << Models::Instance.make(job: 'etcd_z2', index: 2, deployment: deployment_model, uuid: 'uuid-6')
 
               instances
             end
 
-            it 'return all existing instances from migrating_to job PLUS extra instances from migrated_from jobs' do
+            it 'return all existing instances from migrating_to instance group PLUS extra instances from migrated_from instance groups' do
               migrated_instances = job_migrator.find_existing_instances(etcd_job)
               expect(migrated_instances).to contain_exactly(
                   be_a_migrated_instance(existing_job_instances[0], nil),
@@ -164,19 +164,19 @@ module Bosh::Director
                 )
             end
 
-            it 'logs the jobs being migrated' do
-              expect(logger).to receive(:debug).with("Migrating job 'etcd_z1/uuid-1 (0)' to 'etcd/uuid-1 (0)'")
-              expect(logger).to receive(:debug).with("Migrating job 'etcd_z1/uuid-2 (1)' to 'etcd/uuid-2 (1)'")
-              expect(logger).to receive(:debug).with("Migrating job 'etcd_z1/uuid-3 (2)' to 'etcd/uuid-3 (2)'")
-              expect(logger).to receive(:debug).with("Migrating job 'etcd_z2/uuid-4 (0)' to 'etcd/uuid-4 (0)'")
-              expect(logger).to receive(:debug).with("Migrating job 'etcd_z2/uuid-5 (1)' to 'etcd/uuid-5 (1)'")
-              expect(logger).to receive(:debug).with("Migrating job 'etcd_z2/uuid-6 (2)' to 'etcd/uuid-6 (2)'")
+            it 'logs the instance groups being migrated' do
+              expect(logger).to receive(:debug).with("Migrating instance group 'etcd_z1/uuid-1 (0)' to 'etcd/uuid-1 (0)'")
+              expect(logger).to receive(:debug).with("Migrating instance group 'etcd_z1/uuid-2 (1)' to 'etcd/uuid-2 (1)'")
+              expect(logger).to receive(:debug).with("Migrating instance group 'etcd_z1/uuid-3 (2)' to 'etcd/uuid-3 (2)'")
+              expect(logger).to receive(:debug).with("Migrating instance group 'etcd_z2/uuid-4 (0)' to 'etcd/uuid-4 (0)'")
+              expect(logger).to receive(:debug).with("Migrating instance group 'etcd_z2/uuid-5 (1)' to 'etcd/uuid-5 (1)'")
+              expect(logger).to receive(:debug).with("Migrating instance group 'etcd_z2/uuid-6 (2)' to 'etcd/uuid-6 (2)'")
               job_migrator.find_existing_instances(etcd_job)
             end
           end
         end
 
-        context 'when migrated_from job is still referenced in new deployment' do
+        context 'when migrated_from instance group is still referenced in new deployment' do
           let(:deployment_manifest) do
             manifest = Bosh::Spec::Deployments.simple_manifest
             manifest['jobs'] = [
@@ -192,12 +192,34 @@ module Bosh::Director
               job_migrator.find_existing_instances(etcd_job)
             }.to raise_error(
                 DeploymentInvalidMigratedFromJob,
-                "Failed to migrate job 'etcd_z1' to 'etcd'. A deployment can not migrate a job and also specify it. Please remove job 'etcd_z1'."
+                "Failed to migrate instance group 'etcd_z1' to 'etcd'. A deployment can not migrate an instance group and also specify it. Please remove instance group 'etcd_z1'."
               )
           end
         end
 
-        context 'when two jobs migrate from the same job' do
+        context 'when the referenced instance group was the original instance group' do
+          let(:etcd_job_spec) do
+            job = Bosh::Spec::Deployments.simple_job(name: 'etcd', instances: 4)
+            job['azs'] = ['z1']
+            job['migrated_from'] = [
+              {'name' => 'etcd', 'az' => 'z1'},
+            ]
+            job
+          end
+
+          it 'does not raise an error' do
+            expect {
+              job_migrator.find_existing_instances(etcd_job)
+            }.not_to raise_error
+          end
+
+          it 'returns one instance of the original job' do
+            Models::Instance.make(job: 'etcd', index: 0, deployment: deployment_model, uuid: 'uuid-1')
+            expect(job_migrator.find_existing_instances(etcd_job).count).to eq(1)
+          end
+        end
+
+        context 'when two instance groups migrate from the same job' do
           let(:deployment_manifest) do
             manifest = Bosh::Spec::Deployments.simple_manifest
             another_job_spec = Bosh::Spec::Deployments.simple_job(name: 'another')
@@ -215,14 +237,14 @@ module Bosh::Director
               job_migrator.find_existing_instances(etcd_job)
             }.to raise_error(
                 DeploymentInvalidMigratedFromJob,
-                "Failed to migrate job 'etcd_z1' to 'etcd'. A job may be migrated to only one job."
+                "Failed to migrate instance group 'etcd_z1' to 'etcd'. An instance group may be migrated to only one instance group."
               )
           end
         end
 
         context 'when migrated from section contains availability zone and instance models have different az' do
           before do
-            Models::Instance.make(job: 'etcd_z1', index: 0, deployment: deployment_model, vm: nil, availability_zone: 'z10')
+            Models::Instance.make(job: 'etcd_z1', index: 0, deployment: deployment_model, availability_zone: 'z10')
           end
 
           it 'raises an error' do
@@ -230,14 +252,14 @@ module Bosh::Director
               job_migrator.find_existing_instances(etcd_job)
             }.to raise_error(
                 DeploymentInvalidMigratedFromJob,
-                "Failed to migrate job 'etcd_z1' to 'etcd', 'etcd_z1' belongs to availability zone 'z10' and manifest specifies 'z1'"
+                "Failed to migrate instance group 'etcd_z1' to 'etcd', 'etcd_z1' belongs to availability zone 'z10' and manifest specifies 'z1'"
               )
           end
         end
 
         context 'when migrated from section contains availability zone and instance models do not have az (legacy instances)' do
           before do
-            Models::Instance.make(job: 'etcd_z1', index: 0, deployment: deployment_model, vm: nil, availability_zone: nil)
+            Models::Instance.make(job: 'etcd_z1', index: 0, deployment: deployment_model, availability_zone: nil)
           end
 
           it 'updates instance az' do
@@ -259,7 +281,7 @@ module Bosh::Director
             end
 
             before do
-              Models::Instance.make(job: 'etcd_z1', index: 0, deployment: deployment_model, vm: nil, availability_zone: nil)
+              Models::Instance.make(job: 'etcd_z1', index: 0, deployment: deployment_model, availability_zone: nil)
             end
 
             it 'raises an error' do
@@ -267,12 +289,12 @@ module Bosh::Director
                 job_migrator.find_existing_instances(etcd_job)
               }.to raise_error(
                   DeploymentInvalidMigratedFromJob,
-                  "Failed to migrate job 'etcd_z1' to 'etcd', availability zone of 'etcd_z1' is not specified"
+                  "Failed to migrate instance group 'etcd_z1' to 'etcd', availability zone of 'etcd_z1' is not specified"
                 )
             end
           end
 
-          context 'and the desired job does not have azs' do
+          context 'and the desired instance group does not have azs' do
             let(:etcd_job_spec) do
               job = Bosh::Spec::Deployments.simple_job(name: 'etcd', instances: 4)
               job['migrated_from'] = [{'name' => 'etcd_z1'}]
@@ -281,7 +303,7 @@ module Bosh::Director
             end
 
             before do
-              Models::Instance.make(job: 'etcd_z1', index: 0, deployment: deployment_model, vm: nil, availability_zone: nil)
+              Models::Instance.make(job: 'etcd_z1', index: 0, deployment: deployment_model, availability_zone: nil)
             end
 
             it 'succeeds' do
@@ -293,15 +315,15 @@ module Bosh::Director
         end
       end
 
-      context 'when job does not need to be migrated' do
+      context 'when instance group does not need to be migrated' do
         let!(:existing_job_instances) do
           job_instances = []
-          job_instances << Models::Instance.make(job: 'etcd', deployment: deployment_model, vm: nil)
-          job_instances << Models::Instance.make(job: 'etcd', deployment: deployment_model, vm: nil)
+          job_instances << Models::Instance.make(job: 'etcd', deployment: deployment_model)
+          job_instances << Models::Instance.make(job: 'etcd', deployment: deployment_model)
           job_instances
         end
 
-        it 'returns the list of existing job instances' do
+        it 'returns the list of existing instance group instances' do
           migrated_instances = job_migrator.find_existing_instances(etcd_job)
           expect(migrated_instances).to contain_exactly(
               be_a_migrated_instance(existing_job_instances[0], nil),

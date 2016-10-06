@@ -9,7 +9,7 @@ module Bosh::Director
     end
 
     def stop
-      return if @instance_model.compilation || @instance_model.vm.nil?
+      return if @instance_model.compilation || @instance_model.vm_cid.nil?
 
       if @instance_plan.skip_drain
         @logger.info("Skipping drain for '#{@instance_model}'")
@@ -23,7 +23,7 @@ module Bosh::Director
     private
 
     def agent_client
-      @agent_client ||= AgentClient.with_vm(@instance_model.vm)
+      @agent_client ||= AgentClient.with_vm_credentials_and_agent_id(@instance_model.credentials, @instance_model.agent_id)
     end
 
     def perform_drain
@@ -56,7 +56,7 @@ module Bosh::Director
       loop do
         wait_time = drain_time.abs
         if wait_time > 0
-          @logger.info("`#{@instance_model}' is draining: checking back in #{wait_time}s")
+          @logger.info("'#{@instance_model}' is draining: checking back in #{wait_time}s")
           sleep(wait_time)
         end
 

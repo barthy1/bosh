@@ -26,6 +26,7 @@ module Bosh::Spec
           vm_data[:id],
           vm_data[:job_name],
           vm_data[:index],
+          vm_data[:ignore],
           File.join(@agents_base_dir, "agent-base-dir-#{vm_data[:agent_id]}"),
           @director_nats_port,
           @logger,
@@ -45,14 +46,15 @@ module Bosh::Spec
           !instance_data[:bootstrap].empty?,
           instance_data[:az],
           instance_data[:disk_cid],
+          instance_data[:vm_cid]
         )
       end
     end
 
     # vm always returns a vm
-    def vm(job_name, index, options={})
+    def vm(job_name, index_or_id, options={})
       deployment_name = options.fetch(:deployment, '')
-      find_vm(vms(deployment_name, options), job_name, index)
+      find_vm(vms(deployment_name, options), job_name, index_or_id)
     end
 
     def find_vm(vms, job_name, index_or_id)
@@ -65,7 +67,7 @@ module Bosh::Spec
     def wait_for_vm(job_name, index, timeout_seconds, options = {})
       start_time = Time.now
       loop do
-        vm = vms('', options).detect { |vm| vm.job_name == job_name && vm.index == index && vm.last_known_state == 'running' }
+        vm = vms('', options).detect { |vm| vm.job_name == job_name && vm.index == index && vm.ips != '' }
         return vm if vm
         break if Time.now - start_time >= timeout_seconds
         sleep(1)
@@ -124,6 +126,19 @@ module Bosh::Spec
       output = @runner.run("task #{id}")
       failed = /Task (\d+) error/.match(output)
       return output, !failed
+    end
+
+    def raw_task_events(task_id)
+      result = @runner.run("task #{task_id} --raw")
+      event_list = []
+      result.each_line do |line|
+        begin
+          event = Yajl::Parser.new.parse(line)
+          event_list << event if event
+        rescue Yajl::ParseError
+        end
+      end
+      event_list
     end
 
     def kill_vm_and_wait_for_resurrection(vm)

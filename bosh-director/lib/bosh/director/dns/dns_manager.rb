@@ -1,22 +1,28 @@
 module Bosh::Director
+  class DnsManagerProvider
+    def self.create
+      dns_config = Config.dns || {}
+
+      logger = Config.logger
+      dns_domain_name = Canonicalizer.canonicalize(dns_config.fetch('domain_name', 'bosh'), :allow_dots => true)
+      local_dns_repo = LocalDnsRepo.new(logger)
+
+      dns_publisher = BlobstoreDnsPublisher.new(App.instance.blobstores.blobstore, dns_domain_name) if Config.local_dns
+      dns_provider = PowerDns.new(dns_domain_name, logger) if !!Config.dns_db
+
+      DnsManager.new(dns_domain_name, dns_config, dns_provider, dns_publisher, local_dns_repo, logger)
+    end
+  end
+
+  public
+
   class DnsManager
     attr_reader :dns_domain_name
 
-    def self.create
-      dns_config = Config.dns || {}
-      dns_enabled = !!Config.dns_db # to be consistent with current behavior
-      logger = Config.logger
-      local_dns_repo = LocalDnsRepo.new(logger)
-      dns_domain_name = Canonicalizer.canonicalize(dns_config.fetch('domain_name', 'bosh'), :allow_dots => true)
-      dns_provider = PowerDns.new(dns_domain_name, logger)
-
-      new(dns_domain_name, dns_config, dns_enabled, dns_provider, local_dns_repo, logger)
-    end
-
-    def initialize(dns_domain_name, dns_config, dns_enabled, dns_provider, local_dns_repo, logger)
+    def initialize(dns_domain_name, dns_config, dns_provider, dns_publisher, local_dns_repo, logger)
       @dns_domain_name = dns_domain_name
       @dns_provider = dns_provider
-      @dns_enabled = dns_enabled
+      @dns_publisher = dns_publisher
       @default_server = dns_config['server']
       @flush_command = dns_config['flush_command']
       @ip_address = dns_config['address']
@@ -25,21 +31,19 @@ module Bosh::Director
     end
 
     def dns_enabled?
-      @dns_enabled
+      !@dns_provider.nil?
+    end
+
+    def publisher_enabled?
+      !@dns_publisher.nil?
     end
 
     def configure_nameserver
-      return unless dns_enabled?
-
-      @dns_provider.create_or_update_nameserver(@ip_address)
+      @dns_provider.create_or_update_nameserver(@ip_address) if dns_enabled?
     end
 
     def find_dns_record(dns_record_name, ip_address)
       @dns_provider.find_dns_record(dns_record_name, ip_address)
-    end
-
-    def find_dns_record_names_by_instance(instance_model)
-      instance_model.nil? ? [] : instance_model.dns_record_names.to_a.compact
     end
 
     def update_dns_record_for_instance(instance_model, dns_names_to_ip)
@@ -55,9 +59,8 @@ module Bosh::Director
     end
 
     def migrate_legacy_records(instance_model)
-      return unless dns_enabled?
-
       return if @local_dns_repo.find(instance_model).any?
+      return unless dns_enabled?
 
       index_pattern_for_all_networks = dns_record_name(
         instance_model.index,
@@ -81,7 +84,7 @@ module Bosh::Director
     end
 
     def delete_dns_for_instance(instance_model)
-      return unless dns_enabled?
+      return if !dns_enabled?
 
       current_dns_records = @local_dns_repo.find(instance_model)
       if current_dns_records.empty?
@@ -112,7 +115,7 @@ module Bosh::Director
           dns = NetAddr::CIDR.create(dns)
           unless dns.size == 1
             raise NetworkInvalidDns,
-              "Invalid DNS for network `#{network}': must be a single IP"
+              "Invalid DNS for network '#{network}': must be a single IP"
           end
 
           servers << dns.ip
@@ -133,6 +136,24 @@ module Bosh::Director
           @logger.warn("Failed to flush DNS cache: #{stderr.chomp}")
         end
       end
+      publish_dns_records
+    end
+
+    def publish_dns_records
+      if publisher_enabled?
+        dns_records = @dns_publisher.export_dns_records
+        @dns_publisher.publish(dns_records)
+      end
+    end
+
+    def cleanup_dns_records
+      if publisher_enabled?
+        @dns_publisher.cleanup_blobs
+      end
+    end
+
+    def find_dns_record_names_by_instance(instance_model)
+      instance_model.nil? ? [] : instance_model.dns_record_names.to_a.compact
     end
 
     def dns_record_name(hostname, job_name, network_name, deployment_name)
@@ -150,8 +171,6 @@ module Bosh::Director
 
     # add default dns server to an array of dns servers
     def add_default_dns_server(servers)
-      return servers unless dns_enabled?
-
       unless @default_server.to_s.empty? || @default_server == '127.0.0.1'
         (servers ||= []) << @default_server
         servers.uniq!

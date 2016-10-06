@@ -30,8 +30,7 @@ module Bosh::Director
       let!(:disk) do
         Models::PersistentDisk.make(active: disk_state, instance_id: instance.id, disk_cid: 'fake-disk-cid')
       end
-      let!(:instance) { Models::Instance.make(deployment: deployment, job: 'fake-job', index: 0, vm: vm) }
-      let!(:vm) { Models::Vm.make(cid: 'fake-vm-cid', agent_id: 'fake-agent-id', deployment: deployment) }
+      let!(:instance) { Models::Instance.make(deployment: deployment, job: 'fake-job', index: 0, vm_cid: 'fake-vm-cid') }
       let(:disk_owners) { {'fake-disk-cid' => ['fake-vm-cid']} }
       before { allow(cloud).to receive(:has_disk?).and_return(true) }
 
@@ -41,6 +40,16 @@ module Bosh::Director
         it 'registers missing disk problem' do
           expect(problem_register).to receive(:problem_found).with(:missing_disk, disk)
           expect(event_logger).to receive(:track_and_log).with('0 OK, 1 missing, 0 inactive, 0 mount-info mismatch')
+          disk_scanner.scan
+        end
+      end
+
+      context 'when instance is ignored' do
+        let!(:instance) { Models::Instance.make(deployment: deployment, job: 'fake-job', index: 0, vm_cid: 'fake-vm-cid', ignore: true) }
+
+        it 'does not register missing disk problem' do
+          expect(problem_register).to_not receive(:problem_found).with(:missing_disk, disk)
+          expect(event_logger).to receive(:track_and_log).with('0 OK, 0 missing, 0 inactive, 0 mount-info mismatch')
           disk_scanner.scan
         end
       end
@@ -75,7 +84,7 @@ module Bosh::Director
         end
       end
 
-      context 'when disk is attached do different VM' do
+      context 'when disk is attached to different VM' do
         let(:disk_owners) { { disk.disk_cid => owner_vms } }
         let(:owner_vms) { ['different-vm-cid'] }
 

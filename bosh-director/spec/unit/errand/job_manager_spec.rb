@@ -2,14 +2,14 @@ require 'spec_helper'
 
 module Bosh::Director
   describe Errand::JobManager do
-    subject { described_class.new(deployment, job, cloud, event_log, logger) }
+    subject { described_class.new(deployment, job, cloud, logger) }
     let(:ip_provider) {instance_double('Bosh::Director::DeploymentPlan::IpProvider')}
     let(:skip_drain) {instance_double('Bosh::Director::DeploymentPlan::SkipDrain')}
     let(:deployment) { instance_double('Bosh::Director::DeploymentPlan::Planner', {
         ip_provider: ip_provider,
         skip_drain: skip_drain
       }) }
-    let(:job) { instance_double('Bosh::Director::DeploymentPlan::Job', name: 'job_name') }
+    let(:job) { instance_double('Bosh::Director::DeploymentPlan::InstanceGroup', name: 'job_name') }
     let(:blobstore) { instance_double('Bosh::Blobstore::Client') }
 
     let(:cloud) { instance_double('Bosh::Clouds') }
@@ -44,11 +44,8 @@ module Bosh::Director
       let(:instance1) { instance_double('Bosh::Director::DeploymentPlan::Instance', model: instance1_model) }
       let(:instance2) { instance_double('Bosh::Director::DeploymentPlan::Instance', model: instance2_model) }
 
-      let(:instance1_model) { instance_double('Bosh::Director::Models::Instance', vm: instance1_vm) }
-      let(:instance2_model) { instance_double('Bosh::Director::Models::Instance', vm: instance2_vm) }
-
-      let(:instance1_vm) { instance_double('Bosh::Director::Models::Vm', cid: 'fake-vm-cid-1') }
-      let(:instance2_vm) { instance_double('Bosh::Director::Models::Vm', cid: 'fake-vm-cid-2') }
+      let(:instance1_model) { instance_double('Bosh::Director::Models::Instance', vm_cid: 'fake-vm-cid-1') }
+      let(:instance2_model) { instance_double('Bosh::Director::Models::Instance', vm_cid: 'fake-vm-cid-2') }
 
       let(:vm_type) { instance_double('Bosh::Director::DeploymentPlan::VmType') }
       let(:stemcell) { instance_double('Bosh::Director::DeploymentPlan::Stemcell') }
@@ -64,14 +61,14 @@ module Bosh::Director
 
         allow(InstanceDeleter).to receive(:new).and_return(instance_deleter)
         allow(instance_deleter).to receive(:delete_instance_plans)
-        allow(event_log).to receive(:begin_stage).and_return(event_log_stage)
+        allow(Config.event_log).to receive(:begin_stage).and_return(event_log_stage)
 
         allow(job).to receive(:vm_type).and_return(vm_type)
         allow(job).to receive(:stemcell).and_return(stemcell)
       end
 
       it 'creates an event log stage' do
-        expect(event_log).to receive(:begin_stage).with('Deleting errand instances', 2, ['job_name'])
+        expect(Config.event_log).to receive(:begin_stage).with('Deleting errand instances', 2, ['job_name'])
         subject.delete_instances
       end
 
@@ -87,7 +84,7 @@ module Bosh::Director
         let(:instance2_model) { nil }
 
         it 'does not create an event log stage' do
-          expect(event_log).not_to receive(:begin_stage)
+          expect(Config.event_log).not_to receive(:begin_stage)
 
           subject.delete_instances
         end

@@ -35,7 +35,14 @@ module Bosh::Director
 
         def perform
           with_deployment_lock(@deployment) do
-            count = @problem_resolver.apply_resolutions(@resolutions)
+            count, error_message = @problem_resolver.apply_resolutions(@resolutions)
+
+            if error_message
+              raise Bosh::Director::ProblemHandlerError, error_message
+            end
+
+            Bosh::Director::PostDeploymentScriptRunner.run_post_deploys_after_resurrection(@deployment)
+
             "#{count} resolved"
           end
         end

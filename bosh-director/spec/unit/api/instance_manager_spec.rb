@@ -20,24 +20,24 @@ module Bosh::Director
       context 'when index is provided' do
         let(:index) { '3' }
 
-        it 'enqueues a resque job' do
+        it 'enqueues a background job' do
           instance.update(index: index)
 
           expect(job_queue).to receive(:enqueue).with(
-            username, Jobs::FetchLogs, 'fetch logs', [instance.id, options]).and_return(task)
+            username, Jobs::FetchLogs, 'fetch logs', [instance.id, options], deployment).and_return(task)
 
-          expect(subject.fetch_logs(username, deployment_name, job, index, options)).to eq(task)
+          expect(subject.fetch_logs(username, deployment, job, index, options)).to eq(task)
         end
       end
 
       context 'when uuid is provided' do
         let(:uuid) { 'fakeId123' }
 
-        it 'enqueues a resque job' do
+        it 'enqueues a job' do
           expect(job_queue).to receive(:enqueue).with(
-            username, Jobs::FetchLogs, 'fetch logs', [instance.id, options]).and_return(task)
+            username, Jobs::FetchLogs, 'fetch logs', [instance.id, options], deployment).and_return(task)
 
-          expect(subject.fetch_logs(username, deployment_name, job, uuid, options)).to eq(task)
+          expect(subject.fetch_logs(username, deployment, job, uuid, options)).to eq(task)
         end
       end
     end
@@ -52,17 +52,27 @@ module Bosh::Director
         }
       end
 
-      it 'enqueues a resque job' do
+      it 'enqueues a DJ job' do
         expect(job_queue).to receive(:enqueue).with(
           username, Jobs::Ssh, 'ssh: COMMAND:TARGET', [deployment.id, options]).and_return(task)
 
-        expect(subject.ssh(username, options)).to eq(task)
+        expect(subject.ssh(username, deployment, options)).to eq(task)
       end
     end
 
     describe '#find_instance' do
       it 'finds instance by id' do
         expect(subject.find_instance(instance.id)).to eq instance
+      end
+    end
+
+    describe '#find_instances_by_deployment' do
+      it 'uses InstanceLookup#by_deployment' do
+        deployment = Models::Deployment.make(name: 'given_deployment')
+
+        expect_any_instance_of(Api::InstanceLookup).to receive(:by_deployment).with(deployment)
+
+        subject.find_instances_by_deployment(deployment)
       end
     end
 
@@ -76,14 +86,42 @@ module Bosh::Director
         instance.update(index: index)
         instance.update(uuid: id)
 
-        expect(subject.find_by_name(deployment_name, job, index)).to eq instance
-        expect(subject.find_by_name(deployment_name, job, id)).to eq instance
+        expect(subject.find_by_name(deployment, job, index)).to eq instance
+        expect(subject.find_by_name(deployment, job, id)).to eq instance
       end
     end
 
     describe '#filter_by' do
       it 'filters by given criteria' do
-        expect(subject.filter_by(uuid: instance.uuid)).to eq [instance]
+        expect(subject.filter_by(deployment, uuid: instance.uuid)).to eq [instance]
+      end
+    end
+
+    describe '#fetch_instances_with_vm' do
+
+      before { allow(JobQueue).to receive(:new).and_return(job_queue) }
+
+      it 'enqueues a DJ job' do
+        allow(Dir).to receive_messages(mktmpdir: 'FAKE_TMPDIR')
+
+        expect(job_queue).to receive(:enqueue).with(
+            username, Jobs::VmState, 'retrieve vm-stats', [deployment.id, 'FAKE_FORMAT'], deployment).and_return(task)
+
+        expect(subject.fetch_instances_with_vm(username, deployment, 'FAKE_FORMAT')).to eq(task)
+      end
+    end
+
+    describe '#fetch_instances' do
+
+      before { allow(JobQueue).to receive(:new).and_return(job_queue) }
+
+      it 'enqueues a DJ job' do
+        allow(Dir).to receive_messages(mktmpdir: 'FAKE_TMPDIR')
+
+        expect(job_queue).to receive(:enqueue).with(
+            username, Jobs::VmState, 'retrieve vm-stats', [deployment.id, 'FAKE_FORMAT', true], deployment).and_return(task)
+
+        expect(subject.fetch_instances(username, deployment, 'FAKE_FORMAT')).to eq(task)
       end
     end
   end

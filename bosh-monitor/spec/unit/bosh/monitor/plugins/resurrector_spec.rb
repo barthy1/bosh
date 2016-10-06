@@ -24,7 +24,7 @@ describe 'Bhm::Plugins::Resurrector' do
       to_return(status: 200, body: JSON.dump({'user_authentication' => user_authentication}))
   end
 
-  let(:alert) { Bhm::Events::Base.create!(:alert, alert_payload(deployment: 'd', job: 'j', index: 'i')) }
+  let(:alert) { Bhm::Events::Base.create!(:alert, alert_payload(deployment: 'd', job: 'j', instance_id: 'i')) }
 
   let(:user_authentication) { {} }
 
@@ -46,7 +46,7 @@ describe 'Bhm::Plugins::Resurrector' do
       end
     end
 
-    context 'alerts with deployment, job and index' do
+    context 'alerts with deployment, job and id' do
       let (:event_processor) { Bhm::EventProcessor.new }
 
       before do
@@ -84,6 +84,10 @@ describe 'Bhm::Plugins::Resurrector' do
 
         before do
           token_issuer = instance_double(CF::UAA::TokenIssuer)
+
+          allow(File).to receive(:exist?).with('ca-cert').and_return(true)
+          allow(File).to receive(:read).with('ca-cert').and_return("test")
+
           allow(CF::UAA::TokenIssuer).to receive(:new).with(
             'uaa-url', 'client-id', 'client-secret', {ssl_ca_file: 'ca-cert'}
           ).and_return(token_issuer)
@@ -133,7 +137,7 @@ describe 'Bhm::Plugins::Resurrector' do
       end
     end
 
-    context 'alerts without deployment, job and index' do
+    context 'alerts without deployment, job and id' do
       let(:alert) { Bhm::Events::Base.create!(:alert, alert_payload) }
 
       it 'should not be delivered' do

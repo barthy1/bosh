@@ -10,7 +10,10 @@ module Bosh
         let(:deployment_manifest_migrator) { instance_double(ManifestMigrator) }
         let(:manifest_validator) { Bosh::Director::DeploymentPlan::ManifestValidator.new }
         let(:cloud_config_model) { Models::CloudConfig.make(manifest: cloud_config_hash) }
+        let(:runtime_config_model) { Models::RuntimeConfig.make(manifest: runtime_config_hash) }
         let(:cloud_config_hash) { Bosh::Spec::Deployments.simple_cloud_config }
+        let(:runtime_config_hash) { Bosh::Spec::Deployments.simple_runtime_config }
+        let(:manifest) { Manifest.new(manifest_hash, cloud_config_hash, runtime_config_hash)}
         let(:plan_options) { {} }
         let(:event_log_io) { StringIO.new("") }
         let(:logger_io) { StringIO.new("") }
@@ -37,7 +40,7 @@ module Bosh
 
         describe '#create_from_manifest' do
           let(:planner) do
-            subject.create_from_manifest(manifest_hash, cloud_config_model, plan_options)
+            subject.create_from_manifest(manifest, cloud_config_model, runtime_config_model, plan_options)
           end
 
           it 'returns a planner' do
@@ -53,6 +56,12 @@ module Bosh
             expect(planner.name).to eq('migrated_name')
           end
 
+          it 'resolves aliases in manifest' do
+            manifest_hash['releases'].first['version'] = 'latest'
+            planner
+            expect(manifest_hash['releases'].first['version']).to eq('0.1-dev')
+          end
+
           it 'logs the migrated manifests' do
             allow(deployment_manifest_migrator).to receive(:migrate) do |hash, cloud_config|
               [hash.merge({'name' => 'migrated_name'}), cloud_config]
@@ -66,7 +75,7 @@ Migrated deployment manifest:
 LOGMESSAGE
             expected_cloud_manifest_log = <<LOGMESSAGE
 Migrated cloud config manifest:
-{"networks"=>[{"name"=>"a", "subnets"=>[{"range"=>"192.168.1.0/24", "gateway"=>"192.168.1.1", "dns"=>["192.168.1.1", "192.168.1.2"], "static"=>["192.168.1.10"], "reserved"=>[], "cloud_properties"=>{}}]}], "compilation"=>{"workers"=>1, "network"=>"a", "cloud_properties"=>{}}, "resource_pools"=>[{"name"=>"a", "size"=>3, "cloud_properties"=>{}, "stemcell"=>{"name"=>"ubuntu-stemcell", "version"=>"1"}}]}
+{"networks"=>[{"name"=>"a", "subnets"=>[{"range"=>"192.168.1.0/24", "gateway"=>"192.168.1.1", "dns"=>["192.168.1.1", "192.168.1.2"], "static"=>["192.168.1.10"], "reserved"=>[], "cloud_properties"=>{}}]}], "compilation"=>{"workers"=>1, "network"=>"a", "cloud_properties"=>{}}, "resource_pools"=>[{"name"=>"a", "cloud_properties"=>{}, "stemcell"=>{"name"=>"ubuntu-stemcell", "version"=>"1"}, "env"=>{"bosh"=>{"password"=>"foobar"}}}]}
 LOGMESSAGE
 # rubocop:enable LineLength
             expect(logger_io.string).to include(expected_deployment_manifest_log)
@@ -76,7 +85,7 @@ LOGMESSAGE
           it 'raises error when manifest has cloud_config properties' do
             manifest_hash['vm_types'] = 'foo'
             expect{
-              subject.create_from_manifest(manifest_hash, cloud_config_model, plan_options)
+              subject.create_from_manifest(manifest, cloud_config_model, runtime_config_model, plan_options)
             }.to raise_error(Bosh::Director::DeploymentInvalidProperty)
           end
 
@@ -114,11 +123,12 @@ LOGMESSAGE
                 manifest_hash
               end
 
-              it 'has the releases from the deployment manifest' do
+              it 'has the releases from the deployment manifest and the addon' do
                 expect(planner.releases.map { |r| [r.name, r.version] }).to match_array(
                   [
                     ['bosh-release', '1'],
-                    ['bar-release', '2']
+                    ['bar-release', '2'],
+                    ["test_release_2", "2"]
                   ]
                 )
               end
@@ -175,9 +185,9 @@ LOGMESSAGE
 
               context 'when there is one job with two availability zones' do
                 it 'has azs as specified by users' do
-                  expect(planner.jobs.length).to eq(1)
-                  expect(planner.jobs.first.availability_zones.map(&:name)).to eq(['zone1', 'zone2'])
-                  expect(planner.jobs.first.availability_zones.map(&:cloud_properties)).to eq([{foo: 'bar'}, {foo: 'baz'}])
+                  expect(planner.instance_groups.length).to eq(1)
+                  expect(planner.instance_groups.first.availability_zones.map(&:name)).to eq(['zone1', 'zone2'])
+                  expect(planner.instance_groups.first.availability_zones.map(&:cloud_properties)).to eq([{foo: 'bar'}, {foo: 'baz'}])
                 end
               end
 
@@ -191,16 +201,162 @@ LOGMESSAGE
                   )
                 end
                 it 'has azs as specified by users' do
-                  expect(planner.jobs.length).to eq(2)
-                  expect(planner.jobs[0].availability_zones.map(&:name)).to eq(['zone1'])
-                  expect(planner.jobs[0].availability_zones.map(&:cloud_properties)).to eq([{foo: 'bar'}])
+                  expect(planner.instance_groups.length).to eq(2)
+                  expect(planner.instance_groups[0].availability_zones.map(&:name)).to eq(['zone1'])
+                  expect(planner.instance_groups[0].availability_zones.map(&:cloud_properties)).to eq([{foo: 'bar'}])
 
-                  expect(planner.jobs.length).to eq(2)
-                  expect(planner.jobs[1].availability_zones.map(&:name)).to eq(['zone2'])
-                  expect(planner.jobs[1].availability_zones.map(&:cloud_properties)).to eq([{foo: 'baz'}])
+                  expect(planner.instance_groups.length).to eq(2)
+                  expect(planner.instance_groups[1].availability_zones.map(&:name)).to eq(['zone2'])
+                  expect(planner.instance_groups[1].availability_zones.map(&:cloud_properties)).to eq([{foo: 'baz'}])
                 end
               end
             end
+          end
+
+          describe 'links' do
+              context 'when a job consumes a link' do
+                before do
+                  manifest_hash.merge!('jobs' => [
+                     { 'name' => 'job1-name',
+                       'templates' => [{
+                           'name' => 'provides_template',
+                           'consumes' => {
+                               'link_name' => {'from' => 'link_name'}
+                           }
+                       }]
+                     }
+                 ])
+                end
+
+                let(:template1) do
+                  instance_double('Bosh::Director::DeploymentPlan::Template',
+                      {
+                          name: 'provides_template',
+                          link_infos:{
+                              'job1-name' => {
+                                  'consumes' => {
+                                      'link_name' => {
+                                          'name' => 'link_name',
+                                          'type' => 'link_type'
+                                      }
+                                  },
+                                  'provides' => {
+                                      'link_name_2' => {
+                                          'properties' => [
+                                              'a'
+                                          ]
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                  )
+                end
+
+                let(:job1) do
+                  instance_double('Bosh::Director::DeploymentPlan::InstanceGroup',
+                    {
+                        name: 'job1-name',
+                        canonical_name: 'job1-canonical-name',
+                        templates: [template1]
+                    })
+                end
+
+                let(:link_path) do
+                  instance_double(
+                      'Bosh::Director::DeploymentPlan::LinkPath',
+                      {
+                          deployment: 'deployment_name',
+                          job: 'job_name',
+                          template: 'provides_template',
+                          name: 'link_name',
+                          path: 'deployment_name.job_name.provides_template.link_name',
+                          skip: false
+                      }
+                  )
+                end
+
+                let(:skipped_link_path) do
+                  instance_double(
+                      'Bosh::Director::DeploymentPlan::LinkPath',
+                      {
+                          deployment: 'deployment_name',
+                          job: 'job_name',
+                          template: 'provides_template',
+                          name: 'link_name',
+                          path: 'deployment_name.job_name.provides_template.link_name',
+                          skip: true
+                      }
+                  )
+                end
+
+                let(:release) do
+                  instance_double(
+                      'Bosh::Director::DeploymentPlan::ReleaseVersion',
+                      {
+                          name: "bosh-release"
+                      }
+                  )
+                end
+
+                it 'should have a link_path' do
+                  allow(DeploymentPlan::InstanceGroup).to receive(:parse).and_return(job1)
+                  allow(template1).to receive(:release).and_return(release)
+                  allow(template1).to receive(:template_scoped_properties).and_return({})
+                  allow(job1).to receive(:all_properties).and_return({})
+                  expect(DeploymentPlan::LinkPath).to receive(:new).and_return(link_path)
+                  expect(link_path).to receive(:parse)
+                  expect(job1).to receive(:add_link_path).with("provides_template", 'link_name', link_path)
+
+                  planner
+                end
+
+                it 'should not add a link path if no links found for optional ones, and it should not fail' do
+                  allow(DeploymentPlan::InstanceGroup).to receive(:parse).and_return(job1)
+                  allow(template1).to receive(:release).and_return(release)
+                  allow(template1).to receive(:template_scoped_properties).and_return({})
+                  allow(job1).to receive(:all_properties).and_return({})
+                  expect(DeploymentPlan::LinkPath).to receive(:new).and_return(skipped_link_path)
+                  expect(skipped_link_path).to receive(:parse)
+                  expect(job1).to_not receive(:add_link_path)
+                  planner
+                end
+
+                context 'when template properties_json has the value "null"' do
+                  it 'should not throw an error' do
+                    allow(DeploymentPlan::InstanceGroup).to receive(:parse).and_return(job1)
+                    allow(template1).to receive(:release).and_return(release)
+                    allow(template1).to receive(:template_scoped_properties).and_return({})
+                    allow(job1).to receive(:all_properties).and_return({})
+                    allow(DeploymentPlan::LinkPath).to receive(:new).and_return(skipped_link_path)
+                    allow(skipped_link_path).to receive(:parse)
+
+                    templateModel = Models::Template.where(name: 'provides_template').first
+                    templateModel.properties_json = 'null'
+                    templateModel.save
+
+                    expect(subject).to_not receive(:process_link_properties).with({}, {'properties'=>nil, 'template_name'=>'provides_template'}, ['a'], [])
+                    planner
+                  end
+                end
+
+                context 'when link property has no default value and no value is set in the deployment manifest' do
+                  it 'should not throw an error' do
+                    allow(DeploymentPlan::InstanceGroup).to receive(:parse).and_return(job1)
+                    allow(template1).to receive(:release).and_return(release)
+                    allow(template1).to receive(:template_scoped_properties).and_return({})
+                    allow(job1).to receive(:all_properties).and_return({})
+                    allow(DeploymentPlan::LinkPath).to receive(:new).and_return(skipped_link_path)
+                    allow(skipped_link_path).to receive(:parse)
+
+                    templateModel = Models::Template.where(name: 'provides_template').first
+                    templateModel.properties = {"a" => {}}
+                    templateModel.save
+
+                    planner
+                  end
+                end
+              end
           end
         end
 
@@ -216,8 +372,15 @@ LOGMESSAGE
             job = manifest_hash['jobs'].first
             release = Models::Release.make(name: release_entry['name'])
             template = Models::Template.make(name: job['templates'].first['name'], release: release)
+            template2 = Models::Template.make(name: 'provides_template', release: release, properties: {"a" => {default: "b"}})
             release_version = Models::ReleaseVersion.make(release: release, version: release_entry['version'])
             release_version.add_template(template)
+            release_version.add_template(template2)
+          end
+
+          runtime_config_hash['releases'].each do |release_entry|
+            release = Models::Release.make(name: release_entry['name'])
+            Models::ReleaseVersion.make(release: release, version: release_entry['version'])
           end
         end
 

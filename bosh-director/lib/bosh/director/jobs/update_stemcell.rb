@@ -9,6 +9,7 @@ module Bosh::Director
       UPDATE_STEPS = 5
 
       @queue = :normal
+      @local_fs = true
 
       def self.job_type
         :update_stemcell
@@ -38,7 +39,7 @@ module Bosh::Director
       def perform
         logger.info("Processing update stemcell")
 
-        event_log.begin_stage("Update stemcell", @stemcell_url ? UPDATE_STEPS + 1 : UPDATE_STEPS)
+        begin_stage("Update stemcell", @stemcell_url ? UPDATE_STEPS + 1 : UPDATE_STEPS)
 
         track_and_log("Downloading remote stemcell") { download_remote_stemcell } if @stemcell_url
 
@@ -61,12 +62,12 @@ module Bosh::Director
           stemcell_manifest = Psych.load_file(stemcell_manifest_file)
 
           @name = safe_property(stemcell_manifest, "name", :class => String)
-          @operating_system = safe_property(stemcell_manifest, "operating_system", :class => String, :optional => true)
+          @operating_system = safe_property(stemcell_manifest, "operating_system", :class => String, :optional => true, :default => @name)
           @version = safe_property(stemcell_manifest, "version", :class => String)
           @cloud_properties = safe_property(stemcell_manifest, "cloud_properties", :class => Hash, :optional => true)
           @sha1 = safe_property(stemcell_manifest, "sha1", :class => String)
 
-          logger.info("Found stemcell image `#{@name}/#{@version}', " +
+          logger.info("Found stemcell image '#{@name}/#{@version}', " +
                       "cloud properties are #{@cloud_properties.inspect}")
 
           logger.info("Verifying stemcell image")
@@ -80,7 +81,7 @@ module Bosh::Director
         track_and_log("Checking if this stemcell already exists") do
           begin
             stemcell = @stemcell_manager.find_by_name_and_version @name, @version
-            raise StemcellAlreadyExists, "Stemcell `#{@name}/#{@version}' already exists" unless @fix
+            raise StemcellAlreadyExists, "Stemcell '#{@name}/#{@version}' already exists" unless @fix
           rescue StemcellNotFound => e
             stemcell = Models::Stemcell.new
             stemcell.name = @name
@@ -110,7 +111,7 @@ module Bosh::Director
       def verify_sha1
         stemcell_hash = Digest::SHA1.file(@stemcell_path).hexdigest
         if stemcell_hash != @stemcell_sha1
-          raise StemcellSha1DoesNotMatch, "Stemcell SHA1 `#{stemcell_hash}' does not match the expected SHA1 `#{@stemcell_sha1}'"
+          raise StemcellSha1DoesNotMatch, "Stemcell SHA1 '#{stemcell_hash}' does not match the expected SHA1 '#{@stemcell_sha1}'"
         end
       end
 

@@ -3,12 +3,14 @@ require 'bosh/director/api/task_remover'
 module Bosh::Director
   module Api
     class TaskHelper
-      def create_task(username, type, description)
-        task = Models::Task.create(:username => username,
+      def create_task(username, type, description, deployment)
+        task = Models::Task.create_with_teams(:username => username,
                                    :type => type,
                                    :description => description,
                                    :state => :queued,
+                                   :deployment_name => deployment ? deployment.name : nil,
                                    :timestamp => Time.now,
+                                   :teams => deployment ? deployment.teams : nil,
                                    :checkpoint_time => Time.now)
         log_dir = File.join(Config.base_dir, 'tasks', task.id.to_s)
         task_status_file = File.join(log_dir, 'debug')
@@ -20,7 +22,7 @@ module Bosh::Director
         end
 
         # remove old tasks
-        TaskRemover.new(Config.max_tasks).remove
+        TaskRemover.new(Config.max_tasks).remove(type)
 
         task.output = log_dir
         task.save

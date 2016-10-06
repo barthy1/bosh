@@ -78,11 +78,13 @@ module Bosh::Director
   ReleaseExistingJobFingerprintMismatch = err(30013)
   ReleaseVersionCommitHashMismatch = err(30014)
   ReleaseSha1DoesNotMatch = err(30015)
+  ReleasePackageDependencyKeyMismatch = err(30016)
 
   ValidationInvalidType = err(40000)
   ValidationMissingField = err(40001)
   ValidationViolatedMin = err(40002)
   ValidationViolatedMax = err(40003)
+  ValidationExtraField = err(40004)
 
   StemcellInvalidArchive = err(50000)
   StemcellImageNotFound = err(50001)
@@ -137,6 +139,10 @@ module Bosh::Director
 
   CompilationConfigUnknownNetwork = err(120001)
   CompilationConfigInvalidAvailabilityZone = err(120002)
+  CompilationConfigInvalidVmType = err(120003)
+  CompilationConfigCloudPropertiesNotAllowed = err(120004)
+  CompilationConfigInvalidVmExtension = err(120005)
+  CompilationConfigVmTypeRequired = err(120004)
 
   # Manifest parsing: network section
   NetworkReservationInvalidIp = err(130001)
@@ -173,6 +179,8 @@ module Bosh::Director
   JobMissingAvailabilityZones = err(140017)
   JobUnknownAvailabilityZone = err(140018)
   JobAmbiguousEnv = err(140019)
+  JobBothInstanceGroupAndJob = err(140020)
+  JobInstanceIgnored = err(140021)
 
   # Manifest parsing: job networks section
   JobUnknownNetwork = err(150001)
@@ -205,7 +213,7 @@ module Bosh::Director
   DeploymentDuplicateReleaseName = err(190002)
   DeploymentDuplicateResourcePoolName = err(190003)
   DeploymentDuplicateVmTypeName = err(190004)
-  DeploymentRenamedJobNameStillUsed = err(190005)
+  DeploymentDuplicateVmExtensionName = err(190005)
   DeploymentCanonicalJobNameTaken = err(190006)
   DeploymentCanonicalNetworkNameTaken = err(190007)
   DeploymentNoNetworks = err(190008)
@@ -220,6 +228,8 @@ module Bosh::Director
   DeploymentDuplicateAvailabilityZoneName = err(190017)
   DeploymentInvalidMigratedFromJob = err(190018)
   DeploymentInvalidResourceSpecification = err(190019)
+  DeploymentIgnoredInstancesModification = err(190020)
+  DeploymentIgnoredInstancesDeletion = err(190021)
 
   DiskTypeInvalidDiskSize = err(200001)
 
@@ -261,6 +271,18 @@ module Bosh::Director
   # Run errand errors
   RunErrandError = err(510000)
 
-  #Deleting Disk
+  # Disk errors
   DeletingPersistentDiskError = err(520000)
+  AttachDiskErrorUnknownInstance = err(520001)
+  AttachDiskNoPersistentDisk =  err(520002)
+  AttachDiskInvalidInstanceState = err(520003)
+
+  # Addons
+  RuntimeAmbiguousReleaseSpec = err(530000)
+  RuntimeInvalidReleaseVersion = err(530001)
+  RuntimeReleaseNotListedInReleases = err(530002)
+  RuntimeInvalidDeploymentRelease = err(530003)
+
+  # Authorization errors
+  UnauthorizedToAccessDeployment = err(600000, UNAUTHORIZED)
 end

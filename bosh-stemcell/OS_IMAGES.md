@@ -7,6 +7,113 @@ OS images are stored in S3 bucket [bosh-os-images](http://s3.amazonaws.com/bosh-
 
 Ubuntu 14.04 images have filename `bosh-ubuntu-trusty-os-image.tgz`
 
+* `OIJ7Qeu3QZMG3J0rSoI6lx8hdcZfaV5R`
+  - update for CIS tests
+  - built from develop (99aebc025dc4093981395d75be52369ced2d7131)
+
+* `Nh0.et3GyuktazQ9_jOwJGqByyicDrgV`
+  - update for CIS tests
+  - built from develop (a8d26078eb4a2fb277068381c76da638f40b5b36)
+
+* `oPXNdD8b5WwJXZZQBEYmdIVT1.Om7z2T`
+  - update nginx to 1.11.1
+  - built from develop (1af67b94cad42ff2133e383afd6d174721253dbc)
+
+* `ApGJBfSesa7VFhEu3RLRTIqiL1R7E_3J`
+  - update for CIS tests
+  - built from develop (3dfd04cd65c73a01e2f2f1b7310a33687ab27111)
+
+* `odCwzNL6fL14dOpN4SLDwru.6_LCooLl`
+  - USN-2977-1: Linux kernel (Vivid HWE) vulnerability
+  - built from develop (ce8e1284890e0079923f26533c0e0f7f6c5b6a0e)
+
+* `YsMYRqAqNEpQPA1bNtE26bg3zH6eR9qP`
+  - periodic bump with rsyslog reload changes
+  - built from develop (15a4ef77db335b186d183323f5a1f6819c35bdce)
+
+* `IstSjjYJuckEZbTJZ9wcV12hYiX2Nzca`
+  - bumped for USN-2959-1: OpenSSL vulnerabilities
+  - built from develop (95f5d9cc816f934db64a80188cf0c9e80ab15dda)
+
+* `GvyJwqBPjPEYBVCYrUHp0R7qJUHcTJGD`
+  - includes gov1 STIGs
+  - built from develop (4bc83146a59ddca85d4a56868e520f938dc84843)
+
+* `zABsJmjq2gQgXzmDmAA7ONmkzNeM4ujN`
+  - periodic bump to include STIGs
+  - built from develop (a6d4a075ad2c58a629fbc9225d75d67cb4c1cd8a)
+
+* `tH3RcRee0EKRX7RMmELCMEfXXq0ulnik`
+  - periodic bump to include STIGs
+  - built from develop (51750c70da03484321c7c72346742de257bf2fa5)
+
+* `0M3jbAU705ItzZKPdmh6kxRJR38fmvcf`
+  - bumped for libpcre3_1:8.31-2ubuntu2.1 vulnerability
+  - built from master (d2f73ee7636f2325bf6998670228682d194627c9)
+
+* `sLe0Rz_sFs0Uy2DcZ9Xf3KQG0QsuUXos`
+  - periodic bump to include STIGs
+  - built from develop (da0fda1f8bb8ee4c63e64a549bfe3727a6ac5b69)
+
+* `C3YA77iYjAp4OazIG8ZTi7AtPVC6pOY2`
+  - periodic bump to include STIGs
+  - built from develop (c6c341baee219b90935430ef120f52fce668f496)
+
+* `djw1b9mXYwbOSDPGJoFLktHLv79kbcz_`
+  - periodic bump to include STIGs
+  - built from develop (597cbcd96e631678f7d66c31e39a2ac7ddc6c89d)
+
+* `w02UF1DU9KaAxqxP_LcLiBp0P1.cZh3T`
+  - periodic bump to include STIGs
+  - built from develop (7437419b800cdaf2a163fc5606ec360032f37a28)
+
+* `tLeFEoNpFBrwBQbY5jjhOVpAVMSY7UHC`
+  - USN-2932-1: Linux kernel (Vivid HWE) vulnerabilities
+  - built from master (8f4f73a435acfe6728c2588d55d876476b19b725)
+
+* `.ZN3wb_t45goM3wS4rHRGIamJRCmRsuq`
+  - periodic bump
+
+* `2GWd6igY_k.UstpTga8U5nVt6Wh7wQUk`
+  - bump kernel to 3.19.0-51
+
+* `MowCFiZ6MRwCv0BrPlXLOm7rBUqo5X7e`
+  - USN-2910-1: Linux kernel (Vivid HWE) vulnerabilities
+  - built from 3197.1 (ea8b8edc196f6650d4a772bc90e3ee8613056c91)
+
+* `ar7dTtxvhG5d_ytxQ_Js9NDb6ePJV5Jt`
+  - update for USN-2900-1: GNU C Library vulnerability
+  - includes custom kernel update to fix aufs problem
+  - built from 3146.8-os-image (b3122f03ec74c227dad8d6f6c5e730bc4eeafca4)
+
+* `3KSsEYj8q18vJPJfngAjPD2TJqUxwILf`
+  - custom kernel update to fix aufs problem
+  - built from 3146.7-os-image (fe65269b2a438ce8176639e14e6e1f3a09e16b8b)
+
+* `BzKAbSfWFuIlnIRxEpSkdiHDm53nVwlV`
+  - bump for stigs (V-38658)
+
+* `R8M_FtmpgpXpOSGvW_ZHBP0uXGCG1wup`
+  - periodic bump
+
+* `OS3dVBJ2.EbaTLC.nRT5LSRScnISW80V`
+  - update ubuntu for usn-2871-2
+
+* `6O0I3q10J8CyrSUKgAnFh02dRZFg2HTG`
+  - update ubuntu packages for USN-2869-1: OpenSSH vulnerabilities
+
+* `yVt32oA.CXzu2YCXBH7zdttGFdSozka1`
+  - update ubuntu packages for USN-2865-1, USN-2861-1
+
+* `fAPEi05GreKek9FEiIGYZKfYPhpPCZ3B`
+  - update for USN-2861-1
+
+* `YeywOPDDPX0mn3WgSqpxl1gBXcQhtvWv`
+  - bump kernel to 3.19.0-43
+
+* `TTmPhUs6RDJUlQmZ.RYMu0ItfOS6FNtx`
+  - update monit from 5.2.4 to 5.2.5
+
 * `3mZuzYe8vUwy3L1YhZihMvJ3OEzpDkj.`
   - update for USN-2854-1
 
@@ -334,6 +441,85 @@ CentOS 6.6 images have filename `bosh-centos-6-os-image.tgz`
 ## CentOS 7
 
 CentOS 7 images have filename `bosh-centos-7-os-image.tgz`
+
+* `yhFKKsGF1r62vIA4UpTjc1qcRCT1fJVp`
+  - update for CIS tests
+  - built from develop (99aebc025dc4093981395d75be52369ced2d7131)
+
+* `cQdYcoXI4hjmFlxBRyRvC2ROUcdJJEnl`
+  - update for CIS tests
+  - built from develop (a8d26078eb4a2fb277068381c76da638f40b5b36)
+
+* `NIy8pyhN76gikcaqacX40uxB.ePoKNKJ`
+  - update nginx to 1.11.1
+  - built from develop (1af67b94cad42ff2133e383afd6d174721253dbc)
+
+* `WTOHgTn21GfhCJIvxY8BLEk0BXJEG7rO`
+  - update for CIS tests
+  - built from develop (3dfd04cd65c73a01e2f2f1b7310a33687ab27111)
+
+* `UGbyeTxZ1vpbhzmbSmCovLpOLRDCPd4W`
+  - periodic bump with rsyslog reload changes
+  - built from develop (15a4ef77db335b186d183323f5a1f6819c35bdce)
+
+* `pYgqTvtvYYhvVwsK1YChI_Y.p3ob5XW1`
+  - periodic bump
+  - built from develop (95f5d9cc816f934db64a80188cf0c9e80ab15dda)
+
+* `sNzzvPR7ZvX8gBdSKLIgLxaR4KNGLoWM`
+  - includes gov1 STIGs
+  - built from develop (4bc83146a59ddca85d4a56868e520f938dc84843)
+
+* `eppMU7odtc6EZpvt9ZTSxtGnBAQIhKTH`
+  - periodic bump to fix auditd STIG
+  - built from develop (a6d4a075ad2c58a629fbc9225d75d67cb4c1cd8a)
+
+* `.zprWlSz4bwjb0Te0boPm1yCSegMsoWw`
+  - periodic bump to include STIGs
+  - built from develop (51750c70da03484321c7c72346742de257bf2fa5)
+
+* `PmZTYI7LCLzSwbhTgfVf7eaBsMVccM8G`
+  - periodic bump to include STIGs
+  - built from develop (da0fda1f8bb8ee4c63e64a549bfe3727a6ac5b69)
+
+* `EOEnizgLvRMNOR26NDC9bPKvz5UYO6s9`
+  - periodic bump to include STIGs
+  - built from develop (c6c341baee219b90935430ef120f52fce668f496)
+
+* `CjpfolQ0s2ngCK4wJYgLFv3v6uT4Oc0.`
+  - periodic bump to include STIGs
+  - built from develop (597cbcd96e631678f7d66c31e39a2ac7ddc6c89d)
+
+* `UCkAP0ZnLPtOIBjuhhz5TdKSM9wb3BPn`
+  - periodic bump
+  - built from develop (7437419b800cdaf2a163fc5606ec360032f37a28)
+
+* `7qjE9jFXWpH3cUogr7dappkJwThYQpT4`
+  - periodic bump
+
+* `ls0CaYm3laag.H5Qdq1QWxIhNHADvkUD`
+  - periodic bump
+
+* `cEGmwbyceIup.BGXWOWwN2TPYoJoTsNr`
+  - bump for stigs (V-38658)
+
+* `2ZQ9BfHaUhPIATFSOB..99JTymbF1oEY`
+  - periodic bump
+
+* `Pg8Zbi7OZvttUGrseCCrYIHVD6WKwbMW`
+  - (periodic) bump centos to match ubuntu update
+
+* `TQJviTjjjfBUBtaVr5phBSyfCC_arPrR`
+  - (periodic) bump centos to match ubuntu update for USN-2869-1
+
+* `vbWPUGbViswiED.1m6cKU0GdxEu2hL.L`
+  - (periodic) bump centos to match ubuntu update for USN-2865-1, USN-2861-1
+
+* `7PHeBQT.8HLySemI1A3c6HY4NBoG1Asc`
+  - (periodic) bump centos to match ubuntu update for USN-2861-1
+
+* `qmKgGt1iOX84M.hR8ZVI0887DEvnKPHV`
+  - update monit from 5.2.4 to 5.2.5
 
 * `VdAETz96I1jsDYh.Qf8_UgrYTexAmX7U`
   - (periodic) bump centos to match ubuntu update for USN-2854-1

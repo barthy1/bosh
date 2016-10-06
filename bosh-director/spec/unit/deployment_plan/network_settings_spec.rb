@@ -6,22 +6,20 @@ module Bosh::Director::DeploymentPlan
       NetworkSettings.new(
         'fake-job',
         'fake-deployment',
-        {},
+        {'gateway' => 'net_a'},
         [reservation],
-        {'networks' =>
-          {'net_a' => {'ip' => '10.0.0.6', 'netmask' => '255.255.255.0', 'gateway' => '10.0.0.1'}}
-        },
+        {'net_a' => {'ip' => '10.0.0.6', 'netmask' => '255.255.255.0', 'gateway' => '10.0.0.1'}},
         az,
         3,
         'uuid-1',
-        Bosh::Director::DnsManager.create
+        Bosh::Director::DnsManagerProvider.create
       )
     end
 
     let(:az) { AvailabilityZone.new('az-1', {'foo' => 'bar'}) }
     let(:instance) { Instance.create_from_job(job, 3, 'started', plan, {}, az, logger) }
     let(:reservation) {
-      reservation = Bosh::Director::DesiredNetworkReservation.new_dynamic(instance, manual_network)
+      reservation = Bosh::Director::DesiredNetworkReservation.new_dynamic(instance.model, manual_network)
       reservation.resolve_ip('10.0.0.6')
       reservation
     }
@@ -37,7 +35,7 @@ module Bosh::Director::DeploymentPlan
             }]
         },
         [],
-        GlobalNetworkResolver.new(plan),
+        GlobalNetworkResolver.new(plan, [], logger),
         logger
       )
     }
@@ -45,7 +43,7 @@ module Bosh::Director::DeploymentPlan
 
     describe '#network_settings' do
       let(:job) do
-        job = Job.new(logger)
+        job = InstanceGroup.new(logger)
         job.name = 'fake-job'
         job
       end
@@ -56,7 +54,7 @@ module Bosh::Director::DeploymentPlan
           DynamicNetwork.new('net_a', subnets, logger)
         end
 
-        let(:reservation) { Bosh::Director::DesiredNetworkReservation.new_dynamic(instance, dynamic_network) }
+        let(:reservation) { Bosh::Director::DesiredNetworkReservation.new_dynamic(instance.model, dynamic_network) }
 
         it 'returns the network settings plus current IP, Netmask & Gateway from agent state' do
           expect(network_settings.to_hash).to eql({
@@ -66,27 +64,24 @@ module Bosh::Director::DeploymentPlan
                     'foo' => 'bar'
                   },
                   'dns' => ['1.2.3.4'],
+                  'default' => ['gateway'],
                   'ip' => '10.0.0.6',
                   'netmask' => '255.255.255.0',
                   'gateway' => '10.0.0.1'}
               })
         end
 
-        describe '#network_addresses' do
+        describe '#network_address' do
           it 'returns the id based dns record address for the instance' do
-            expect(network_settings.network_addresses).to eq({
-                  'net_a' => {'address' => 'uuid-1.fake-job.net-a.fake-deployment.bosh'}
-                })
+            expect(network_settings.network_address).to eq('uuid-1.fake-job.net-a.fake-deployment.bosh')
           end
         end
       end
 
       context 'manual network' do
-        describe '#network_addresses' do
-          it 'returns the ip addresses for manual networks on the instance' do
-            expect(network_settings.network_addresses).to eq({
-                  'net_a' => {'address' => '10.0.0.6'}
-                })
+        describe '#network_address' do
+          it 'returns the ip address for manual networks on the instance' do
+            expect(network_settings.network_address).to eq('10.0.0.6')
           end
         end
       end

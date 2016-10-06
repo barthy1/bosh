@@ -6,7 +6,7 @@ module Bosh::Cli
     class Ssh < Base
 
       # bosh ssh
-      usage 'ssh'
+      usage 'ssh <job>/<index>'
       desc 'Execute command or start an interactive session'
       option '--gateway_host HOST', 'Gateway host'
       option '--gateway_user USER', 'Gateway user'
@@ -31,17 +31,17 @@ module Bosh::Cli
         if command.empty?
           setup_interactive_shell(manifest.name, job, id)
         else
-          say("Executing `#{command.join(' ')}' on #{job}/#{id}")
+          say("Executing '#{command.join(' ')}' on #{job}/#{id}")
           perform_operation(:exec, manifest.name, job, id, command)
         end
       end
 
       # bosh scp
-      usage 'scp'
-      desc 'upload/download the source file to the given job. ' +
-             'Note: for download /path/to/destination is a directory'
-      option '--download', 'Download file'
-      option '--upload', 'Upload file'
+      usage 'scp <job>/<index> <source> <destination>'
+      desc "Transfer files to (--upload) or from (--download) a job.\n" +
+             'Note: for --download, <destination> is treated as a directory'
+      option '--download', 'Download <source> file from the job'
+      option '--upload', 'Upload <source> file to the job'
       option '--gateway_host HOST', 'Gateway host'
       option '--gateway_user USER', 'Gateway user'
       option '--gateway_identity_file FILE', 'Gateway identity file'
@@ -107,7 +107,7 @@ module Bosh::Cli
       # @param [optional,String] password
       def setup_ssh(deployment_name, job, id, password)
 
-        say("Target deployment is `#{deployment_name}'")
+        say("Target deployment is '#{deployment_name}'")
         nl
         say('Setting up ssh artifacts')
 
@@ -153,14 +153,30 @@ module Bosh::Cli
             gateway = nil
           end
 
-          yield sessions, gateway, ssh_session
+          begin
+            yield sessions, gateway, ssh_session
+          rescue Exception => error
+            handle_closed_stream_error(error)
+          end
         ensure
           nl
           say('Cleaning up ssh artifacts')
           ssh_session.cleanup
           indices = sessions.map { |session| session['id'] || session['index'] }
+          begin
+            gateway.shutdown! if gateway
+          rescue Exception => error
+            handle_closed_stream_error(error)
+          end
           director.cleanup_ssh(deployment_name, job, "^#{ssh_session.user}$", indices)
-          gateway.shutdown! if gateway
+        end
+      end
+
+      def handle_closed_stream_error(error)
+        if error.message.include?('closed stream')
+          warn("#{error}")
+        else
+          raise error
         end
       end
 

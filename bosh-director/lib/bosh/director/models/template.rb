@@ -36,12 +36,12 @@ module Bosh::Director::Models
       object_or_nil(self.properties_json)
     end
 
-    def requires=(requires_spec)
-      self.requires_json = json_encode(requires_spec)
+    def consumes=(consumes_spec)
+      self.consumes_json = json_encode(consumes_spec)
     end
 
-    def requires
-      object_or_nil(self.requires_json)
+    def consumes
+      object_or_nil(self.consumes_json)
     end
 
     def provides=(provides_spec)
@@ -55,11 +55,15 @@ module Bosh::Director::Models
     private
 
     def object_or_nil(value)
-      value ? Yajl::Parser.parse(value) : nil
+      if value == 'null' || value == nil
+        nil
+      else
+        JSON.parse(value)
+      end
     end
 
     def json_encode(value)
-      Yajl::Encoder.encode(value)
+      value.nil? ? 'null' : JSON.generate(value)
     end
   end
 end

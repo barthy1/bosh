@@ -40,21 +40,25 @@ module Bosh::Dev
       let(:git_branch_merger) { instance_double('Bosh::Dev::GitBranchMerger', merge: nil) }
       let(:download_adapter) { instance_double('Bosh::Dev::DownloadAdapter', download: nil) }
       let(:release_change_promoter) { instance_double('Bosh::Dev::ReleaseChangePromoter', promote: nil) }
+      let(:environment) { {} }
+      let(:should_skip_release_promotion) { false }
 
       before do
         allow(Build).to receive(:candidate).and_return(build)
-        allow(GitPromoter).to receive(:new).with(logger).and_return(git_promoter)
-        allow(GitTagger).to receive(:new).with(logger).and_return(git_tagger)
-        allow(GitBranchMerger).to receive(:new).with(logger).and_return(git_branch_merger)
+        allow(GitPromoter).to receive(:new).and_return(git_promoter)
+        allow(GitTagger).to receive(:new).and_return(git_tagger)
+        allow(GitBranchMerger).to receive(:new).and_return(git_branch_merger)
 
         allow(Bosh::Dev::DownloadAdapter).to receive(:new).and_return(download_adapter)
         allow(Bosh::Dev::ReleaseChangePromoter).to receive(:new).with(
           candidate_build_number,
           candidate_sha,
           download_adapter,
+          should_skip_release_promotion,
           logger
         ).and_return(release_change_promoter)
 
+        stub_const('ENV', environment)
       end
 
       subject(:promoter) do
@@ -74,6 +78,26 @@ module Bosh::Dev
         allow(git_tagger).to receive(:stable_tag_for?).with(candidate_sha).and_return(false)
 
         allow(git_branch_merger).to receive(:branch_contains?).with(feature_branch, stable_tag_sha).and_return(false)
+
+        allow(Open3).to receive(:capture3).with("git ls-tree #{stable_tag_sha} -- bat | awk '{ print $3 }'", chdir: Dir.pwd).
+            and_return([ 'fake-bat-sha', nil, instance_double('Process::Status', success?: true) ])
+      end
+
+      context 'when skipping release promotion' do
+        let(:environment) { {'SKIP_PROMOTE_ARTIFACTS' => 'release'} }
+        let(:should_skip_release_promotion) { true }
+
+        it 'should initialize the ReleaseChangePromoter so that it does not promote the release' do
+          expect(Bosh::Dev::ReleaseChangePromoter).to receive(:new).with(
+            candidate_build_number,
+            candidate_sha,
+            download_adapter,
+            should_skip_release_promotion,
+            logger
+          ).and_return(release_change_promoter)
+
+          promoter.promote
+        end
       end
 
       context 'when the current sha has never been promoted' do

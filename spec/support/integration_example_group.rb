@@ -59,6 +59,12 @@ module IntegrationExampleGroup
     bosh_runner.run("update cloud-config #{cloud_config_manifest.path}", options)
   end
 
+  def upload_runtime_config(options={})
+    runtime_config_hash = options.fetch(:runtime_config_hash, Bosh::Spec::Deployments.simple_runtime_config)
+    runtime_config_manifest = yaml_file('simple', runtime_config_hash)
+    bosh_runner.run("update runtime-config #{runtime_config_manifest.path}", options)
+  end
+
   def create_and_upload_test_release(options={})
     create_args = options.fetch(:force, false) ? '--force' : ''
     bosh_runner.run_in_dir("create release #{create_args}", ClientSandbox.test_release_dir, options)
@@ -76,11 +82,15 @@ module IntegrationExampleGroup
     bosh_runner.run("upload stemcell #{spec_asset('valid_stemcell.tgz')} --skip-if-exists", options)
   end
 
+  def upload_stemcell_2(options={})
+    bosh_runner.run("upload stemcell #{spec_asset('valid_stemcell_2.tgz')} --skip-if-exists", options)
+  end
+
   def delete_stemcell
     bosh_runner.run("delete stemcell ubuntu-stemcell 1")
   end
 
-  def set_deployment(options)
+  def set_deployment(options={})
     manifest_hash = options.fetch(:manifest_hash, Bosh::Spec::Deployments.simple_manifest)
 
     # Hold reference to the tempfile so that it stays around
@@ -91,8 +101,9 @@ module IntegrationExampleGroup
 
   def deploy(options)
     cmd = options.fetch(:no_track, false) ? '--no-track ' : ''
+    cmd += options.fetch(:no_color, false) ? '--no-color ' : ''
     cmd += 'deploy'
-    cmd += options.fetch(:redact_diff, false) ? ' --redact-diff' : ''
+    cmd += options.fetch(:no_redact, false) ? ' --no-redact' : ''
     cmd += options.fetch(:recreate, false) ? ' --recreate' : ''
 
     if options[:skip_drain]
@@ -106,6 +117,10 @@ module IntegrationExampleGroup
     bosh_runner.run(cmd, options)
   end
 
+  def stop_job(vm_name)
+    bosh_runner.run("stop #{vm_name}", {})
+  end
+
   def deploy_from_scratch(options={})
     prepare_for_deploy(options)
     deploy_simple_manifest(options)
@@ -117,6 +132,9 @@ module IntegrationExampleGroup
     create_and_upload_test_release(options)
     upload_stemcell(options)
     upload_cloud_config(options) unless options[:legacy]
+    if options[:runtime_config_hash]
+      upload_runtime_config(options)
+    end
   end
 
   def deploy_simple_manifest(options={})
@@ -159,12 +177,38 @@ module IntegrationExampleGroup
     bosh_output.gsub /[0-9a-f]{8}-[0-9a-f-]{27}/, "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
   end
 
+  def scrub_event_time(bosh_output)
+    bosh_output.gsub /[A-Za-z]{3} [A-Za-z]{3} [0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC [0-9]{4}/, 'xxx xxx xx xx:xx:xx UTC xxxx'
+  end
+
+  def scrub_event_parent_ids(bosh_output)
+    bosh_output.gsub /[0-9]{1,3} <- [0-9]{1,3} [ ]{0,}/, "x <- x "
+  end
+
+  def scrub_event_ids(bosh_output)
+    bosh_output.gsub /[ ][0-9]{1,3} [ ]{0,}/, " x      "
+  end
+
+  def scrub_event_specific(bosh_output)
+    bosh_output_after_ids = scrub_random_ids(bosh_output)
+    bosh_output_after_cids = scrub_random_cids(bosh_output_after_ids)
+    bosh_output_after_time = scrub_event_time(bosh_output_after_cids)
+    bosh_output_after_parent_ids = scrub_event_parent_ids(bosh_output_after_time)
+    scrub_event_ids(bosh_output_after_parent_ids)
+  end
+  
   def scrub_random_cids(bosh_output)
     bosh_output.gsub /[0-9a-f]{32}/, "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
   end
 
+  def cid_from(bosh_output)
+    bosh_output[/[0-9a-f]{32}/, 0]
+  end
+
   def scrub_time(bosh_output)
-    bosh_output.gsub /[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} [-+][0-9]{4}/, '0000-00-00 00:00:00 -0000'
+    bosh_output.
+      gsub(/[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} [-+][0-9]{4}/, '0000-00-00 00:00:00 -0000').
+      gsub(/[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC/, '0000-00-00 00:00:00 UTC')
   end
 
   def extract_agent_messages(nats_messages, agent_id)
@@ -311,6 +355,36 @@ module IntegrationSandboxHelpers
 end
 
 module IntegrationSandboxBeforeHelpers
+
+  DATA_MIGRATION_FILE = '/bosh-director/db/migrations/director/20160324222211_add_data.rb'
+
+  def insert_data_migration_file_before_all
+    before (:all) do
+      path = Dir.pwd + DATA_MIGRATION_FILE
+
+      file = File.new(path, 'w')
+      file.write("Sequel.migration do
+  up do
+        run(\"")
+
+      (Dir[Dir.pwd + '/spec/assets/migration_data/*']).sort.each do |data_file_path|
+        data_file = File.new(data_file_path, 'r')
+        file.write(data_file.read.gsub("\"", "\\\""))
+      end
+
+      file.write("\")
+  end
+end")
+      file.close
+    end
+  end
+
+  def delete_data_migration_file_after_all
+    after (:all) do
+      File.delete(Dir.pwd + DATA_MIGRATION_FILE)
+    end
+  end
+
   def with_reset_sandbox_before_each(options={})
     before do |example|
       prepare_sandbox

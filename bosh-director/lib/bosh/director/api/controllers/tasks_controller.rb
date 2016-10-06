@@ -3,14 +3,30 @@ require 'bosh/director/api/controllers/base_controller'
 module Bosh::Director
   module Api::Controllers
     class TasksController < BaseController
-      get '/', scope: :read do
-        dataset = Models::Task.dataset
 
-        if limit = params['limit']
-          limit = limit.to_i
-          limit = 1 if limit < 1
-          dataset = dataset.limit(limit)
+      def initialize(config)
+        super(config)
+        @deployment_manager = Api::DeploymentManager.new
+      end
+
+      def self.authorization(perm)
+        return unless perm
+
+        condition do
+          type = params[:type]
+          task = @task_manager.find_task(params[:id])
+          if type == 'debug' || type == 'cpi' || !type
+            @permission_authorizer.granted_or_raise(task, :admin, token_scopes)
+          elsif type == 'event' || type == 'result' || type == 'none'
+            @permission_authorizer.granted_or_raise(task, :read, token_scopes)
+          else
+            raise UnauthorizedToAccessDeployment, "Unknown type #{type}"
+          end
         end
+      end
+
+      get '/', scope: :list_tasks do
+        dataset = Models::Task.dataset
 
         states = params['state'].to_s.split(',')
         if states.size > 0
@@ -20,6 +36,7 @@ module Bosh::Director
         verbose = params['verbose'] || '1'
         if verbose == '1'
           dataset = dataset.filter(type: %w[
+            attach_disk
             create_snapshot
             delete_deployment
             delete_release
@@ -33,20 +50,56 @@ module Bosh::Director
           ])
         end
 
-        tasks = dataset.order_by(:timestamp.desc).map do |task|
+        if limit = params['limit']
+          limit = limit.to_i
+          limit = 1 if limit < 1
+        end
+
+        if @permission_authorizer.is_granted?(:director, :read, token_scopes) ||
+          @permission_authorizer.is_granted?(:director, :admin, token_scopes)
+          tasks = filter_task_by_deployment_and_teams(dataset, params['deployment'], nil, limit)
+          permitted_tasks = Set.new(tasks)
+        else
+          tasks = filter_task_by_deployment_and_teams(dataset, params['deployment'], token_scopes, limit)
+          permitted_tasks = Set.new(tasks)
+        end
+
+        tasks = permitted_tasks.map do |task|
           if task_timeout?(task)
             task.state = :timeout
             task.save
           end
           @task_manager.task_to_hash(task)
         end
-
         content_type(:json)
+
+
         json_encode(tasks)
       end
 
-      get '/:id', scope: :read do
+      def filter_task_by_deployment_and_teams(dataset, deployment, token_scopes, limit)
+          if deployment
+            dataset = dataset.where(deployment_name: deployment)
+          end
+          if token_scopes
+            teams = Models::Team.transform_admin_team_scope_to_teams(token_scopes)
+            dataset = dataset.where(teams: teams)
+          end
+          if limit
+            dataset = dataset.limit(limit)
+          end
+          dataset.order_by(Sequel.desc(:timestamp)).all
+      end
+
+
+      get '/:id', scope: :list_tasks do
         task = @task_manager.find_task(params[:id])
+        if !@permission_authorizer.is_granted?(task, :read, token_scopes)
+          raise UnauthorizedToAccessDeployment,
+            'One of the following scopes is required to access this task: ' +
+              @permission_authorizer.list_expected_scope(:director, :read, token_scopes).join(', ')
+        end
+
         if task_timeout?(task)
           task.state = :timeout
           task.save
@@ -59,8 +112,13 @@ module Bosh::Director
       # Sends back output of given task id and params[:type]
       # Example: `get /tasks/5/output?type=event` will send back the file
       # at /var/vcap/store/director/tasks/5/event
-      get '/:id/output', scope: Api::Extensions::Scoping::ParamsScope.new(:type, {event: :read, result: :read}) do
+      get '/:id/output', authorization: :task_output, scope: :authorization do
         log_type = params[:type] || 'debug'
+
+        if log_type == "none"
+          halt(204)
+        end
+
         task = @task_manager.find_task(params[:id])
 
         if task.output.nil?

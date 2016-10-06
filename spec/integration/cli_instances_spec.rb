@@ -4,7 +4,7 @@ describe 'cli: deployment process', type: :integration do
   include Bosh::Spec::CreateReleaseOutputParsers
   with_reset_sandbox_before_each
 
-  it 'displays instances in a deployment', dns: true do
+  it 'displays instances in a deployment' do
     target_and_login
 
     cloud_config_hash = Bosh::Spec::Deployments.simple_cloud_config
@@ -55,6 +55,8 @@ describe 'cli: deployment process', type: :integration do
     expect(output).to include('Disk CID')
     expect(output).to include('Agent ID')
     expect(output).to include('Resurrection')
+    expect(output).to include('Ignore')
+    expect(output.scan(/\| xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \| active       \| false  \|/).count).to eq(3)
 
     output = bosh_runner.run('instances --dns')
     expect(scrub_random_ids(output)).to match_output '

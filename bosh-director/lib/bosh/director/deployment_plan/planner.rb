@@ -1,5 +1,6 @@
 require 'bosh/director/deployment_plan/deployment_spec_parser'
 require 'bosh/director/deployment_plan/cloud_manifest_parser'
+require 'bosh/director/deployment_plan/runtime_manifest_parser'
 require 'bosh/director/deployment_plan/disk_type'
 require 'forwardable'
 require 'common/deep_copy'
@@ -34,19 +35,14 @@ module Bosh::Director
       attr_accessor :update
 
       # @return [Array<Bosh::Director::DeploymentPlan::Job>]
-      #   All jobs in the deployment
-      attr_reader :jobs
+      #   All instance_groups in the deployment
+      attr_reader :instance_groups
 
       # Stemcells in deployment by alias
       attr_reader :stemcells
 
       # Job instances from the old manifest that are not in the new manifest
       attr_reader :unneeded_instances
-
-      # VMs from the old manifest that are not in the new manifest
-      attr_accessor :unneeded_vms
-
-      attr_reader :job_rename
 
       # @return [Boolean] Indicates whether VMs should be recreated
       attr_reader :recreate
@@ -56,27 +52,25 @@ module Bosh::Director
       # @return [Boolean] Indicates whether VMs should be drained
       attr_reader :skip_drain
 
-      def initialize(attrs, manifest_text, cloud_config, deployment_model, options = {})
-        @cloud_config = cloud_config
+      attr_reader :manifest_text
 
+      def initialize(attrs, manifest_text, cloud_config, runtime_config, deployment_model, options = {})
         @name = attrs.fetch(:name)
         @properties = attrs.fetch(:properties)
         @releases = {}
 
         @manifest_text = Bosh::Common::DeepCopy.copy(manifest_text)
         @cloud_config = cloud_config
+        @runtime_config = runtime_config
         @model = deployment_model
 
         @stemcells = {}
-        @jobs = []
-        @jobs_name_index = {}
-        @jobs_canonical_name_index = Set.new
+        @instance_groups = []
+        @instance_groups_name_index = {}
+        @instance_groups_canonical_name_index = Set.new
 
         @unneeded_vms = []
         @unneeded_instances = []
-
-        @job_rename = safe_property(options, 'job_rename',
-          :class => Hash, :default => {})
 
         @recreate = !!options['recreate']
 
@@ -96,6 +90,8 @@ module Bosh::Director
         :resource_pool,
         :vm_types,
         :vm_type,
+        :vm_extensions,
+        :vm_extension,
         :add_resource_pool,
         :disk_types,
         :disk_type,
@@ -106,9 +102,9 @@ module Bosh::Director
         Canonicalizer.canonicalize(@name)
       end
 
-      def bind_models
+      def bind_models(skip_links_binding = false)
         stemcell_manager = Api::StemcellManager.new
-        dns_manager = DnsManager.create
+        dns_manager = DnsManagerProvider.create
         assembler = DeploymentPlan::Assembler.new(
           self,
           stemcell_manager,
@@ -117,26 +113,32 @@ module Bosh::Director
           @logger
         )
 
-        assembler.bind_models
+        assembler.bind_models(skip_links_binding)
       end
 
       def compile_packages
         validate_packages
 
         cloud = Config.cloud
-        vm_deleter = VmDeleter.new(cloud, @logger)
+        vm_deleter = VmDeleter.new(cloud, @logger, false, Config.enable_virtual_delete_vms)
         disk_manager = DiskManager.new(cloud, @logger)
         job_renderer = JobRenderer.create
-        vm_creator = Bosh::Director::VmCreator.new(cloud, @logger, vm_deleter, disk_manager, job_renderer)
-        dns_manager = DnsManager.create
+        arp_flusher = ArpFlusher.new
+        vm_creator = Bosh::Director::VmCreator.new(cloud, @logger, vm_deleter, disk_manager, job_renderer, arp_flusher)
+        dns_manager = DnsManagerProvider.create
         instance_deleter = Bosh::Director::InstanceDeleter.new(ip_provider, dns_manager, disk_manager)
-        compilation_instance_pool = CompilationInstancePool.new(InstanceReuser.new, vm_creator, self, @logger, instance_deleter)
+        compilation_instance_pool = CompilationInstancePool.new(
+          InstanceReuser.new,
+          vm_creator,
+          self,
+          @logger,
+          instance_deleter,
+          compilation.workers)
         package_compile_step = DeploymentPlan::Steps::PackageCompileStep.new(
-          jobs,
+          instance_groups,
           compilation,
           compilation_instance_pool,
           @logger,
-          Config.event_log,
           nil
         )
         package_compile_step.perform
@@ -153,19 +155,13 @@ module Bosh::Director
       end
 
       def candidate_existing_instances
-        desired_job_names = jobs.map(&:name)
-        migrating_job_names = jobs.map(&:migrated_from).flatten.map(&:name)
+        desired_job_names = instance_groups.map(&:name)
+        migrating_job_names = instance_groups.map(&:migrated_from).flatten.map(&:name)
 
         existing_instances.select do |instance|
           desired_job_names.include?(instance.job) ||
             migrating_job_names.include?(instance.job)
         end
-      end
-
-      # Returns a list of Vms in the deployment (according to DB)
-      # @return [Array<Models::Vm>]
-      def vm_models
-        @model.vms
       end
 
       def skip_drain_for_job?(name)
@@ -185,7 +181,7 @@ module Bosh::Director
       def add_release(release)
         if @releases.has_key?(release.name)
           raise DeploymentDuplicateReleaseName,
-            "Duplicate release name `#{release.name}'"
+            "Duplicate release name '#{release.name}'"
         end
         @releases[release.name] = release
       end
@@ -202,12 +198,6 @@ module Bosh::Director
         @releases[name]
       end
 
-      # Adds a VM to deletion queue
-      # @param [Bosh::Director::Models::Vm] vm VM DB model
-      def mark_vm_for_deletion(vm)
-        @unneeded_vms << vm
-      end
-
       def instance_plans_with_missing_vms
         jobs_starting_on_deploy.collect_concat do |job|
           job.instance_plans_with_missing_vms
@@ -219,37 +209,39 @@ module Bosh::Director
       end
 
       # Adds a job by name
-      # @param [Bosh::Director::DeploymentPlan::Job] job
-      def add_job(job)
-        if rename_in_progress? && @job_rename['old_name'] == job.name
-          raise DeploymentRenamedJobNameStillUsed,
-            "Renamed job `#{job.name}' is still referenced in " +
-              'deployment manifest'
-        end
-
-        if @jobs_canonical_name_index.include?(job.canonical_name)
+      # @param [Bosh::Director::DeploymentPlan::InstanceGroup] instance_group
+      def add_instance_group(instance_group)
+        if @instance_groups_canonical_name_index.include?(instance_group.canonical_name)
           raise DeploymentCanonicalJobNameTaken,
-            "Invalid job name `#{job.name}', canonical name already taken"
+            "Invalid instance group name '#{instance_group.name}', canonical name already taken"
         end
 
-        @jobs << job
-        @jobs_name_index[job.name] = job
-        @jobs_canonical_name_index << job.canonical_name
+        @instance_groups << instance_group
+        @instance_groups_name_index[instance_group.name] = instance_group
+        @instance_groups_canonical_name_index << instance_group.canonical_name
       end
 
-      # Returns a named job
-      # @param [String] name Job name
-      # @return [Bosh::Director::DeploymentPlan::Job] Job
-      def job(name)
-        @jobs_name_index[name]
+      # Returns a named instance_group
+      # @param [String] name Instance group name
+      # @return [Bosh::Director::DeploymentPlan::InstanceGroup] Instance group
+      def instance_group(name)
+        @instance_groups_name_index[name]
       end
 
       def jobs_starting_on_deploy
-        @jobs.select(&:starts_on_deploy?)
-      end
+        instance_groups = []
 
-      def rename_in_progress?
-        @job_rename['old_name'] && @job_rename['new_name']
+        @instance_groups.each do |instance_group|
+          if instance_group.is_service?
+            instance_groups << instance_group
+          elsif instance_group.is_errand?
+            if instance_group.instances.any? { |i| nil != i.model && !i.model.vm_cid.to_s.empty? }
+              instance_groups << instance_group
+            end
+          end
+        end
+
+        instance_groups
       end
 
       def persist_updates!
@@ -265,6 +257,7 @@ module Bosh::Director
 
         model.manifest = Psych.dump(@manifest_text)
         model.cloud_config = @cloud_config
+        model.runtime_config = @runtime_config
         model.link_spec = @link_spec
         model.save
       end
@@ -288,7 +281,7 @@ module Bosh::Director
       def validate_packages
         release_manager = Bosh::Director::Api::ReleaseManager.new
         validator = DeploymentPlan::PackageValidator.new(@logger)
-        jobs.each do |job|
+        instance_groups.each do |job|
           job.templates.each do |template|
             release_model = release_manager.find_by_name(template.release.name)
             release_version_model = release_manager.find_version(release_model, template.release.version)
@@ -308,6 +301,7 @@ module Bosh::Director
         @global_network_resolver = options.fetch(:global_network_resolver)
         @resource_pools = self.class.index_by_name(options.fetch(:resource_pools))
         @vm_types = self.class.index_by_name(options.fetch(:vm_types, {}))
+        @vm_extensions = self.class.index_by_name(options.fetch(:vm_extensions, {}))
         @disk_types = self.class.index_by_name(options.fetch(:disk_types))
         @availability_zones = options.fetch(:availability_zones_list)
         @compilation = options.fetch(:compilation)
@@ -354,6 +348,18 @@ module Bosh::Director
 
       def vm_type(name)
         @vm_types[name]
+      end
+
+      def vm_extensions
+        @vm_extensions.values
+      end
+
+      def vm_extension(name)
+        unless @vm_extensions.has_key?(name)
+          raise "The vm_extension '#{name}' has not been configured in cloud-config."
+        end
+
+        @vm_extensions[name]
       end
 
       def add_resource_pool(resource_pool)

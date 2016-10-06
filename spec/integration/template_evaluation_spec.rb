@@ -55,5 +55,73 @@ describe 'template', type: :integration do
     expect(new_id).to match /[a-f0-9\-]/
 
     expect(new_id).to eq(original_id)
+
+    output = bosh_runner.run('events')
+    parser = Support::TableHelpers::Parser.new(scrub_event_time(scrub_random_cids(scrub_random_ids(output))))
+    expect(parser.data).to include(
+      {'ID' => /[0-9]{1,3} <- [0-9]{1,3}/, 'Time' => 'xxx xxx xx xx:xx:xx UTC xxxx', 'User' => 'test', 'Action' => 'update', 'Object type' => 'deployment', 'Task' => /[0-9]{1,3}/, 'Object ID' => 'simple', 'Dep' => 'simple', 'Inst' => '-', 'Context' => /.*/},
+      {'ID' => /[0-9]{1,3} <- [0-9]{1,3}/, 'Time' => 'xxx xxx xx xx:xx:xx UTC xxxx', 'User' => 'test', 'Action' => 'recreate', 'Object type' => 'instance', 'Task' => /[0-9]{1,3}/, 'Object ID' => 'id_job/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', 'Dep' => 'simple', 'Inst' => 'id_job/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', 'Context' => /.*/},
+      {'ID' => /[0-9]{1,3}/, 'Time' => 'xxx xxx xx xx:xx:xx UTC xxxx', 'User' => 'test', 'Action' => 'recreate', 'Object type' => 'instance', 'Task' => /[0-9]{1,3}/, 'Object ID' => 'id_job/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', 'Dep' => 'simple', 'Inst' => 'id_job/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', 'Context' => /.*/},
+      {'ID' => /[0-9]{1,3}/, 'Time' => 'xxx xxx xx xx:xx:xx UTC xxxx', 'User' => 'test', 'Action' => 'update', 'Object type' => 'deployment', 'Task' => /[0-9]{1,3}/, 'Object ID' => 'simple', 'Dep' => 'simple', 'Inst' => '-', 'Context' => /.*/},
+    )
+  end
+
+  it 'prints all template evaluation errors when there are errors in multiple release template files' do
+    manifest_hash = Bosh::Spec::Deployments.simple_manifest
+    manifest_hash['jobs'] = [
+        {
+            'name' => 'foobar',
+            'templates' => ['name' => 'foobar_with_bad_properties'],
+            'resource_pool' => 'a',
+            'instances' => 1,
+            'networks' => [{
+                               'name' => 'a',
+                           }],
+            'properties' => {},
+        }
+    ]
+
+    output = deploy_from_scratch(manifest_hash: manifest_hash, failure_expected: true)
+
+    expect(output).to include <<-EOF
+Error 100: Unable to render instance groups for deployment. Errors are:
+   - Unable to render jobs for instance group 'foobar'. Errors are:
+     - Unable to render templates for job 'foobar_with_bad_properties'. Errors are:
+       - Error filling in template 'foobar_ctl' (line 8: Can't find property '["test_property"]')
+       - Error filling in template 'drain.erb' (line 4: Can't find property '["dynamic_drain_wait1"]')
+    EOF
+  end
+
+  it 'prints all template evaluation errors when there are errors in multiple job deployment templates' do
+    manifest_hash = Bosh::Spec::Deployments.simple_manifest
+    manifest_hash['jobs'] = [
+        {
+            'name' => 'foobar',
+            'templates' => [
+                # {'name' => 'foobar'},
+                {'name' => 'foobar_with_bad_properties'},
+                {'name' => 'foobar_with_bad_properties_2'}
+            ],
+            'resource_pool' => 'a',
+            'instances' => 1,
+            'networks' => [{
+                               'name' => 'a',
+                           }],
+            'properties' => {},
+        }
+    ]
+
+    output = deploy_from_scratch(manifest_hash: manifest_hash, failure_expected: true)
+
+    expect(output).to include <<-EOF
+Error 100: Unable to render instance groups for deployment. Errors are:
+   - Unable to render jobs for instance group 'foobar'. Errors are:
+     - Unable to render templates for job 'foobar_with_bad_properties'. Errors are:
+       - Error filling in template 'foobar_ctl' (line 8: Can't find property '["test_property"]')
+       - Error filling in template 'drain.erb' (line 4: Can't find property '["dynamic_drain_wait1"]')
+     - Unable to render templates for job 'foobar_with_bad_properties_2'. Errors are:
+       - Error filling in template 'foobar_ctl' (line 8: Can't find property '["test_property"]')
+       - Error filling in template 'drain.erb' (line 4: Can't find property '["dynamic_drain_wait1"]')
+    EOF
   end
 end

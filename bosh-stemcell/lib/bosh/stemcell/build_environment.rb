@@ -42,7 +42,7 @@ module Bosh::Stemcell
       [
         "cd #{STEMCELL_SPECS_DIR};",
         "OS_IMAGE=#{os_image_tarball_path}",
-        'bundle exec rspec -fd',
+        "bundle exec rspec -fd#{exclude_arch_exclusions}",
         "spec/os_image/#{operating_system_spec_name}_spec.rb",
       ].join(' ')
     end
@@ -58,7 +58,8 @@ module Bosh::Stemcell
         "spec/stemcells/#{operating_system_spec_name}_spec.rb",
         "spec/stemcells/#{agent.name}_agent_spec.rb",
         "spec/stemcells/#{infrastructure.name}_spec.rb",
-        'spec/stemcells/stig_spec.rb'
+        'spec/stemcells/stig_spec.rb',
+        'spec/stemcells/cis_spec.rb'
       ].join(' ')
     end
 
@@ -156,6 +157,7 @@ module Bosh::Stemcell
     end
 
     def exclude_exclusions
+      [
       case infrastructure.name
       when 'vsphere'
         ' --tag ~exclude_on_vsphere'
@@ -169,6 +171,20 @@ module Bosh::Stemcell
         ' --tag ~exclude_on_openstack'
       when 'azure'
         ' --tag ~exclude_on_azure'
+      when 'softlayer'
+        ' --tag ~exclude_on_softlayer'
+      when 'google'
+        ' --tag ~exclude_on_google'
+      else
+        ''
+      end,
+      exclude_arch_exclusions.strip
+      ].join(' ').rstrip
+    end
+
+    def exclude_arch_exclusions
+      if Bosh::Stemcell::Arch.ppc64le?
+        ' --tag ~exclude_on_ppc64le'
       else
         ''
       end

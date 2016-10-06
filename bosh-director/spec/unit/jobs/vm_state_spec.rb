@@ -23,10 +23,6 @@ module Bosh::Director
         )
     end
 
-    def set_vm_apply_spec(vm, options=nil)
-      vm.instance.update(spec: (options || {'vm_type' => {'name' => 'fake-vm-type', 'cloud_properties' => {}}}))
-    end
-
     before do
       @deployment = Models::Deployment.make
       @result_file = double('result_file')
@@ -34,19 +30,20 @@ module Bosh::Director
       allow(Config).to receive(:dns).and_return({'domain_name' => 'microbosh', 'db' => {}})
     end
 
-    describe 'Resque job class expectations' do
+    describe 'DJ job class expectations' do
       let(:job_type) { :vms }
-      it_behaves_like 'a Resque job'
+      let(:queue) { :urgent }
+      it_behaves_like 'a DJ job'
     end
 
-    let(:vm) { Models::Vm.make(deployment: @deployment, agent_id: 'fake-agent-id', cid: 'fake-vm-cid') }
+    let(:instance) { Models::Instance.make(deployment: @deployment, agent_id: 'fake-agent-id', vm_cid: 'fake-vm-cid') }
 
     describe '#perform' do
-      before { allow(AgentClient).to receive(:with_vm).with(instance_of(Models::Vm), timeout: 5).and_return(agent) }
+      before { allow(AgentClient).to receive(:with_vm_credentials_and_agent_id).with(anything, anything, timeout: 5).and_return(agent) }
       let(:agent) { instance_double('Bosh::Director::AgentClient') }
 
       it 'parses agent info into vm_state WITHOUT vitals' do
-        vm  #trigger the let
+        instance  #trigger the let
         expect(agent).to receive(:get_state).with('full').and_return(
           'vm_cid' => 'fake-vm-cid',
           'networks' => { 'test' => { 'ip' => '1.1.1.1' } },
@@ -71,7 +68,7 @@ module Bosh::Director
       end
 
       it 'parses agent info into vm_state WITH vitals' do
-        vm  #trigger the let
+        instance  #trigger the let
         stub_agent_get_state_to_return_state_with_vitals
 
         expect(@result_file).to receive(:write) do |agent_status|
@@ -94,7 +91,7 @@ module Bosh::Director
       end
 
       it 'should return DNS A records if they exist' do
-        Models::Instance.make(vm: vm, dns_record_names: ['index.job.network.deployment.microbosh'])
+        instance.update(dns_record_names: ['index.job.network.deployment.microbosh'])
 
         stub_agent_get_state_to_return_state_with_vitals
 
@@ -108,7 +105,7 @@ module Bosh::Director
       end
 
       it 'should return DNS A records ordered by instance id records first' do
-        Models::Instance.make(vm: vm, dns_record_names: ['0.job.network.deployment.microbosh', 'd824057d-c92f-45a9-ad9f-87da12008b21.job.network.deployment.microbosh'])
+        instance.update(dns_record_names: ['0.job.network.deployment.microbosh', 'd824057d-c92f-45a9-ad9f-87da12008b21.job.network.deployment.microbosh'])
         stub_agent_get_state_to_return_state_with_vitals
 
         expect(@result_file).to receive(:write) do |agent_status|
@@ -121,7 +118,7 @@ module Bosh::Director
       end
 
       it 'should handle unresponsive agents' do
-        Models::Instance.make(deployment: @deployment, vm: vm, resurrection_paused: true, job: 'dea', index: 50)
+        instance.update(resurrection_paused: true, job: 'dea', index: 50)
 
         expect(agent).to receive(:get_state).with('full').and_raise(RpcTimeout)
 
@@ -140,7 +137,7 @@ module Bosh::Director
       end
 
       it 'should get the resurrection paused status' do
-        Models::Instance.make(deployment: @deployment, vm: vm, resurrection_paused: true)
+        instance.update(resurrection_paused: true)
         stub_agent_get_state_to_return_state_with_vitals
         job = Jobs::VmState.new(@deployment.id, 'full')
 
@@ -152,8 +149,33 @@ module Bosh::Director
         job.perform
       end
 
+      it 'should get the default ignore status of a vm' do
+        instance
+        stub_agent_get_state_to_return_state_with_vitals
+        job = Jobs::VmState.new(@deployment.id, 'full')
+
+        expect(@result_file).to receive(:write) do |agent_status|
+          status = JSON.parse(agent_status)
+          expect(status['ignore']).to be(false)
+        end
+
+        job.perform
+      end
+
+      it 'should get the ignore status of a vm when updated' do
+        instance.update(ignore: true)
+        stub_agent_get_state_to_return_state_with_vitals
+        job = Jobs::VmState.new(@deployment.id, 'full')
+
+        expect(@result_file).to receive(:write) do |agent_status|
+          status = JSON.parse(agent_status)
+          expect(status['ignore']).to be(true)
+        end
+
+        job.perform
+      end
+
       it 'should return disk cid info when active disks found' do
-        instance = Models::Instance.make(deployment: @deployment, vm: vm)
         Models::PersistentDisk.create(
           instance: instance,
           active: true,
@@ -172,7 +194,6 @@ module Bosh::Director
       end
 
       it 'should return disk cid info when NO active disks found' do
-        instance = Models::Instance.make(deployment: @deployment, vm: vm)
         Models::PersistentDisk.create(
           instance: instance,
           active: false,
@@ -193,7 +214,7 @@ module Bosh::Director
       end
 
       it 'should return instance id' do
-        Models::Instance.make(deployment: @deployment, vm: vm, uuid: 'blarg')
+        instance.update(uuid: 'blarg')
         stub_agent_get_state_to_return_state_with_vitals
 
         job = Jobs::VmState.new(@deployment.id, 'full')
@@ -207,9 +228,7 @@ module Bosh::Director
       end
 
       it 'should return vm_type' do
-        Models::Instance.make(deployment: @deployment, vm: vm)
-
-        set_vm_apply_spec(vm)
+        instance.update(spec: {'vm_type' => {'name' => 'fake-vm-type', 'cloud_properties' => {}}})
 
         stub_agent_get_state_to_return_state_with_vitals
 
@@ -224,7 +243,7 @@ module Bosh::Director
       end
 
       it 'should return processes info' do
-        vm #trigger the let
+        instance #trigger the let
         stub_agent_get_state_to_return_state_with_vitals
 
         job = Jobs::VmState.new(@deployment.id, 'full')
@@ -238,9 +257,24 @@ module Bosh::Director
         job.perform
       end
 
+      context 'without vm_cid' do
+        it 'does not try to contact the agent' do
+          instance.update(vm_cid: nil)
+
+          expect(@result_file).to receive(:write) do |agent_status|
+            status = JSON.parse(agent_status)
+            expect(status['job_state']).to eq(nil)
+          end
+
+          expect(AgentClient).to_not receive(:with_vm_credentials_and_agent_id)
+
+          Jobs::VmState.new(@deployment.id, 'full', true).perform
+        end
+      end
+
       context 'when instance is a bootstrap node' do
         it 'should return bootstrap as true' do
-          Models::Instance.make(deployment: @deployment, vm: vm, bootstrap: true)
+          instance.update(bootstrap: true)
           stub_agent_get_state_to_return_state_with_vitals
           job = Jobs::VmState.new(@deployment.id, 'full')
 
@@ -255,7 +289,7 @@ module Bosh::Director
 
       context 'when instance is NOT a bootstrap node' do
         it 'should return bootstrap as false' do
-          Models::Instance.make(deployment: @deployment, vm: vm, bootstrap: false)
+          instance.update(bootstrap: false)
           stub_agent_get_state_to_return_state_with_vitals
           job = Jobs::VmState.new(@deployment.id, 'full')
 
@@ -269,8 +303,7 @@ module Bosh::Director
       end
 
       it 'should return processes info' do
-        Models::Instance.make(deployment: @deployment, vm: vm)
-        set_vm_apply_spec(vm)
+        instance.update(spec: {'vm_type' => {'name' => 'fake-vm-type', 'cloud_properties' => {}}})
 
         expect(agent).to receive(:get_state).with('full').and_return(
           'vm_cid' => 'fake-vm-cid',
@@ -301,6 +334,24 @@ module Bosh::Director
         end
 
         job.perform
+      end
+
+      context 'when exclude filter is set and vms without cid exist' do
+        before(:each) do
+          Models::Instance.make(deployment: @deployment, vm_cid: 'fake-vm-cid')
+          Models::Instance.make(deployment: @deployment, vm_cid: nil)
+        end
+
+        it 'excludes them' do
+          allow(agent).to receive(:get_state).with('full').and_return({
+              'networks' => { 'test' => { 'ip' => '1.1.1.1' } },
+          })
+          job = Jobs::VmState.new(@deployment.id, 'full')
+
+          expect(@result_file).to receive(:write).once
+
+          job.perform
+        end
       end
     end
   end

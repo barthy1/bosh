@@ -11,7 +11,7 @@ rpm --root $chroot --initdb
 case "${stemcell_operating_system_version}" in
   "7")
     centos_release_package_url="http://mirror.centos.org/centos/7/os/x86_64/Packages/centos-release-7-2.1511.el7.centos.2.10.x86_64.rpm"
-    epel_package_url="http://dl.fedoraproject.org/pub/epel/7/x86_64/e/epel-release-7-5.noarch.rpm"
+    epel_package_url="https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm"
     ;;
   *)
     echo "Unknown centos version: ${stemcell_operating_system_version}"
@@ -30,7 +30,7 @@ unshare -m $SHELL <<INSTALL_YUM
 
   mkdir -p /etc/pki
   mount --no-mtab --bind $chroot/etc/pki /etc/pki
-  yum --installroot=$chroot -c /bosh/stemcell_builder/etc/custom_yum.conf --assumeyes install yum
+  yum --installroot=$chroot -c $base_dir/etc/custom_yum.conf --assumeyes install yum
 INSTALL_YUM
 
 run_in_chroot $chroot "

@@ -38,16 +38,10 @@ module Bosh::Director
             layout: Logging.layouts.pattern(:pattern => '%m\n')
           ))
         end
-
-        @last_stage = Stage.new(self, 'unknown', [], 0)
       end
 
       def begin_stage(stage_name, total = nil, tags = [])
-        @last_stage = Stage.new(self, stage_name, tags, total)
-      end
-
-      def track(task_name = nil, &blk)
-        @last_stage.advance_and_track(task_name, &blk)
+        Stage.new(self, stage_name, tags, total)
       end
 
       def warn_deprecated(message)
@@ -58,11 +52,19 @@ module Bosh::Director
         )
       end
 
+      def warn(message)
+        log_entry(
+          'time' => Time.now.to_i,
+          'type' => 'warning',
+          'message' => message
+        )
+      end
+
       # Adds an error entry to the event log.
       # @param [DirectorError] error Director error
       # @return [void]
       def log_error(error)
-        @logger.info(Yajl::Encoder.encode(
+        @logger.info(JSON.generate(
           :time => Time.now.to_i,
           :error => {
             :code => error.error_code,
@@ -72,7 +74,7 @@ module Bosh::Director
       end
 
       def log_entry(entry)
-        @logger.info(Yajl::Encoder.encode(entry))
+        @logger.info(JSON.generate(entry))
       end
     end
 

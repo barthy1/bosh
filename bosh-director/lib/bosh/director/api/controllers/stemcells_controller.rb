@@ -4,7 +4,7 @@ module Bosh::Director
   module Api::Controllers
     class StemcellsController < BaseController
       post '/', :consumes => :json do
-        payload = json_decode(request.body)
+        payload = json_decode(request.body.read)
         options = {
             fix: params['fix'] == 'true',
             sha1: payload['sha1']
@@ -22,7 +22,7 @@ module Bosh::Director
         redirect "/tasks/#{task.id}"
       end
 
-      get '/', scope: :read do
+      get '/', scope: :read_stemcells do
         stemcells = @stemcell_manager.find_all_stemcells
         json_encode(stemcells)
       end

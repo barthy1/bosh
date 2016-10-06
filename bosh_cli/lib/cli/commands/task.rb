@@ -66,11 +66,12 @@ module Bosh::Cli::Command
     usage "tasks"
     desc "Show running tasks"
     option "--no-filter", INCLUDE_ALL
+    option "--deployment DEPLOYMENT_NAME", "Show tasks for given deployment"
     def list_running
       auth_required
       show_current_state
       use_filter = !options.key?(:no_filter)
-      tasks = director.list_running_tasks(get_verbose_level(use_filter))
+      tasks = director.list_running_tasks(get_verbose_level(use_filter), options[:deployment])
       err("No running tasks") if tasks.empty?
       show_tasks_table(tasks.sort_by { |t| t["id"].to_i * -1 })
       say("Total tasks running now: %d" % [tasks.size])
@@ -80,11 +81,12 @@ module Bosh::Cli::Command
     usage "tasks recent"
     desc "Show <number> recent tasks"
     option "--no-filter", INCLUDE_ALL
+    option "--deployment DEPLOYMENT_NAME", "Show tasks for given deployment"
     def list_recent(count = 30)
       auth_required
       show_current_state
       use_filter = !options.key?(:no_filter)
-      tasks = director.list_recent_tasks(count, get_verbose_level(use_filter))
+      tasks = director.list_recent_tasks(count, get_verbose_level(use_filter), options[:deployment])
       err("No recent tasks") if tasks.empty?
       show_tasks_table(tasks)
       say("Showing #{tasks.size} recent #{tasks.size == 1 ? "task" : "tasks"}")
@@ -117,16 +119,16 @@ module Bosh::Cli::Command
     def show_tasks_table(tasks)
       return if tasks.empty?
       tasks_table = table do |t|
-        t.headings = "#", "State", "Timestamp", "User", "Description", "Result"
+        t.headings = "#", "State", "Started", "Last Activity",  "User", "Deployment", "Description", "Result"
         tasks.map do |task|
-          t << [task["id"], task["state"], Time.at(task["timestamp"]).utc, task["user"],
+          t << [task["id"], task["state"], task["started_at"] ? Time.at(task["started_at"]).utc : '-', Time.at(task["timestamp"]).utc, task["user"], task["deployment"],
                 task["description"].to_s, task["result"].to_s.truncate(80)]
         end
       end
 
-      say("\n")
+      nl
       say(tasks_table)
-      say("\n")
+      nl
     end
 
     # Returns the verbose level for the given no_filter flag

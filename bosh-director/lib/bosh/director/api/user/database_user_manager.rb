@@ -40,8 +40,8 @@ module Bosh::Director
         user
       end
 
-      def get_user_from_request(request)
-        hash = Yajl::Parser.new.parse(request.body)
+      def get_user_from_json(json_user)
+        hash = JSON.parse(json_user)
         Models::User.new(:username => hash["username"],
           :password => hash["password"])
       end
@@ -53,7 +53,7 @@ module Bosh::Director
       def find_by_name(name)
         user = Models::User[:username => name]
         if user.nil?
-          raise UserNotFound, "User `#{name}' doesn't exist"
+          raise UserNotFound, "User '#{name}' doesn't exist"
         end
         user
       end

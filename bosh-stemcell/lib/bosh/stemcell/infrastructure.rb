@@ -6,6 +6,8 @@ module Bosh::Stemcell
           OpenStack.new
         when 'aws'
           Aws.new
+        when 'google'
+          Google.new
         when 'vsphere'
           Vsphere.new
         when 'warden'
@@ -14,6 +16,8 @@ module Bosh::Stemcell
           Vcloud.new
         when 'azure'
           Azure.new
+        when 'softlayer'
+          Softlayer.new
         when 'null'
           NullInfrastructure.new
         else
@@ -99,6 +103,16 @@ module Bosh::Stemcell
       end
     end
 
+    class Google < Base
+      def initialize
+        super(name: 'google', hypervisor: 'kvm', default_disk_size: 3072, disk_formats: ['rawdisk'])
+      end
+
+      def additional_cloud_properties
+        {'root_device_name' => '/dev/sda1'}
+      end
+    end
+
     class Warden < Base
       def initialize
         super(name: 'warden', hypervisor: 'boshlite', default_disk_size: 2048, disk_formats: ['files'])
@@ -112,6 +126,16 @@ module Bosh::Stemcell
     class Azure < Base
       def initialize
         super(name: 'azure', hypervisor: 'hyperv', default_disk_size: 3072, disk_formats: ['vhd'])
+      end
+
+      def additional_cloud_properties
+        {'root_device_name' => '/dev/sda1'}
+      end
+    end
+
+    class Softlayer < Base
+      def initialize
+        super(name: 'softlayer', hypervisor: 'esxi', default_disk_size: 3072, disk_formats: ['ovf'])
       end
 
       def additional_cloud_properties

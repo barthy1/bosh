@@ -9,7 +9,8 @@ module Bosh::Director
     let(:cloud_config) { Models::CloudConfig.make }
 
     describe '#parse' do
-      let(:parsed_deployment) { subject.parse(manifest_hash) }
+      let(:options) { {} }
+      let(:parsed_deployment) { subject.parse(manifest_hash, options) }
       let(:deployment_model) { Models::Deployment.make }
       let(:manifest_hash) do
         {
@@ -72,7 +73,7 @@ module Bosh::Director
             expect {
               parsed_deployment.stemcells
             }.to raise_error Bosh::Director::ValidationMissingField,
-                "Required property `alias' was not specified in object " +
+                "Required property 'alias' was not specified in object " +
                   '({"name"=>"bosh-aws-xen-hvm-ubuntu-trusty-go_agent", "version"=>"1234"})'
           end
         end
@@ -257,7 +258,7 @@ module Bosh::Director
               parsed_deployment
             }.to raise_error(
               ValidationMissingField,
-              /Required property `releases' was not specified in object .+/,
+              /Required property 'releases' was not specified in object .+/,
             )
           end
         end
@@ -276,6 +277,25 @@ module Bosh::Director
 
             expect(parsed_deployment.update).to eq(update)
           end
+
+          context 'when canaries value is present in options' do
+              let(:options) { { 'canaries'=> '42' } }
+              it "replaces canaries value from job's update section with option's value" do
+                expect(DeploymentPlan::UpdateConfig).to receive(:new)
+                  .with( {'foo'=> 'bar', 'canaries' => '42'} )
+                  .and_return(update_config)
+                parsed_deployment.update
+              end
+          end
+          context 'when max_in_flight value is present in options' do
+            let(:options) { { 'max_in_flight'=> '42' } }
+            it "replaces max_in_flight value from job's update section with option's value" do
+              expect(DeploymentPlan::UpdateConfig).to receive(:new)
+                .with( {'foo'=> 'bar', 'max_in_flight' => '42'} )
+                .and_return(update_config)
+              parsed_deployment.update
+            end
+          end
         end
 
         context 'when update section is not specified' do
@@ -286,155 +306,180 @@ module Bosh::Director
               parsed_deployment
             }.to raise_error(
               ValidationMissingField,
-              /Required property `update' was not specified in object .+/,
+              /Required property 'update' was not specified in object .+/,
             )
           end
         end
       end
 
-      describe 'jobs key' do
+      shared_examples_for 'jobs/instance_groups key' do
         context 'when there is at least one job' do
-          before { manifest_hash.merge!('jobs' => []) }
+          before { manifest_hash.merge!(keyword => []) }
 
           let(:event_log) { instance_double('Bosh::Director::EventLog::Log') }
 
           context 'when job names are unique' do
             before do
-              manifest_hash.merge!('jobs' => [
+              manifest_hash.merge!(keyword => [
                 { 'name' => 'job1-name' },
                 { 'name' => 'job2-name' },
               ])
             end
 
             let(:job1) do
-              instance_double('Bosh::Director::DeploymentPlan::Job', {
+              instance_double('Bosh::Director::DeploymentPlan::InstanceGroup', {
                 name: 'job1-name',
                 canonical_name: 'job1-canonical-name',
+                templates: []
               })
             end
 
             let(:job2) do
-              instance_double('Bosh::Director::DeploymentPlan::Job', {
+              instance_double('Bosh::Director::DeploymentPlan::InstanceGroup', {
                 name: 'job2-name',
                 canonical_name: 'job2-canonical-name',
+                templates: []
               })
             end
 
             it 'delegates to Job to parse job specs' do
-              expect(DeploymentPlan::Job).to receive(:parse).
-                with(be_a(DeploymentPlan::Planner), {'name' => 'job1-name'}, event_log, logger).
+              expect(DeploymentPlan::InstanceGroup).to receive(:parse).
+                with(be_a(DeploymentPlan::Planner), {'name' => 'job1-name'}, event_log, logger, {}).
                 and_return(job1)
 
-              expect(DeploymentPlan::Job).to receive(:parse).
-                with(be_a(DeploymentPlan::Planner), {'name' => 'job2-name'}, event_log, logger).
+              expect(DeploymentPlan::InstanceGroup).to receive(:parse).
+                with(be_a(DeploymentPlan::Planner), {'name' => 'job2-name'}, event_log, logger, {}).
                 and_return(job2)
 
-              expect(parsed_deployment.jobs).to eq([job1, job2])
+              expect(parsed_deployment.instance_groups).to eq([job1, job2])
+            end
+
+            context 'when canaries value is present in options' do
+              let(:options) { { 'canaries'=> '42' } }
+              it "replaces canaries value from job's update section with option's value" do
+                expect(DeploymentPlan::InstanceGroup).to receive(:parse)
+                  .with(be_a(DeploymentPlan::Planner), {'name' => 'job1-name'}, event_log, logger, options)
+                  .and_return(job1)
+
+                expect(DeploymentPlan::InstanceGroup).to receive(:parse).
+                  with(be_a(DeploymentPlan::Planner), {'name' => 'job2-name'}, event_log, logger, options).
+                  and_return(job2)
+
+                parsed_deployment.instance_groups
+              end
+            end
+
+            context 'when max_in_flight value is present in options' do
+              let(:options) { { 'max_in_flight'=> '42' } }
+              it "replaces max_in_flight value from job's update section with option's value" do
+                expect(DeploymentPlan::InstanceGroup).to receive(:parse)
+                   .with(be_a(DeploymentPlan::Planner), {'name' => 'job1-name'}, event_log, logger, options)
+                   .and_return(job1)
+
+                expect(DeploymentPlan::InstanceGroup).to receive(:parse).
+                  with(be_a(DeploymentPlan::Planner), {'name' => 'job2-name'}, event_log, logger, options).
+                  and_return(job2)
+
+                parsed_deployment.instance_groups
+              end
             end
 
             it 'allows to look up job by name' do
-              allow(DeploymentPlan::Job).to receive(:parse).
-                with(be_a(DeploymentPlan::Planner), {'name' => 'job1-name'}, event_log, logger).
+              allow(DeploymentPlan::InstanceGroup).to receive(:parse).
+                with(be_a(DeploymentPlan::Planner), {'name' => 'job1-name'}, event_log, logger, {}).
                 and_return(job1)
 
-              allow(DeploymentPlan::Job).to receive(:parse).
-                with(be_a(DeploymentPlan::Planner), {'name' => 'job2-name'}, event_log, logger).
+              allow(DeploymentPlan::InstanceGroup).to receive(:parse).
+                with(be_a(DeploymentPlan::Planner), {'name' => 'job2-name'}, event_log, logger, {}).
                 and_return(job2)
 
-              expect(parsed_deployment.job('job1-name')).to eq(job1)
-              expect(parsed_deployment.job('job2-name')).to eq(job2)
+
+              expect(parsed_deployment.instance_group('job1-name')).to eq(job1)
+              expect(parsed_deployment.instance_group('job2-name')).to eq(job2)
             end
           end
 
           context 'when more than one job have same canonical name' do
             before do
-              manifest_hash.merge!('jobs' => [
+              manifest_hash.merge!(keyword => [
                 { 'name' => 'job1-name' },
                 { 'name' => 'job2-name' },
               ])
             end
 
             let(:job1) do
-              instance_double('Bosh::Director::DeploymentPlan::Job', {
+              instance_double('Bosh::Director::DeploymentPlan::InstanceGroup', {
                 name: 'job1-name',
                 canonical_name: 'same-canonical-name',
               })
             end
 
             let(:job2) do
-              instance_double('Bosh::Director::DeploymentPlan::Job', {
+              instance_double('Bosh::Director::DeploymentPlan::InstanceGroup', {
                 name: 'job2-name',
                 canonical_name: 'same-canonical-name',
               })
             end
 
             it 'raises an error' do
-              allow(DeploymentPlan::Job).to receive(:parse).
-                with(be_a(DeploymentPlan::Planner), {'name' => 'job1-name'}, event_log, logger).
+              allow(DeploymentPlan::InstanceGroup).to receive(:parse).
+                with(be_a(DeploymentPlan::Planner), {'name' => 'job1-name'}, event_log, logger, {}).
                 and_return(job1)
 
-              allow(DeploymentPlan::Job).to receive(:parse).
-                with(be_a(DeploymentPlan::Planner), {'name' => 'job2-name'}, event_log, logger).
+              allow(DeploymentPlan::InstanceGroup).to receive(:parse).
+                with(be_a(DeploymentPlan::Planner), {'name' => 'job2-name'}, event_log, logger, {}).
                 and_return(job2)
 
               expect {
                 parsed_deployment
               }.to raise_error(
                 DeploymentCanonicalJobNameTaken,
-                "Invalid job name `job2-name', canonical name already taken",
+                "Invalid instance group name 'job2-name', canonical name already taken",
               )
             end
           end
         end
 
         context 'when there are no jobs' do
-          before { manifest_hash.merge!('jobs' => []) }
+          before { manifest_hash.merge!(keyword => []) }
 
           it 'parses jobs and return empty array' do
-            expect(parsed_deployment.jobs).to eq([])
+            expect(parsed_deployment.instance_groups).to eq([])
           end
         end
 
         context 'when jobs key is not specified' do
-          before { manifest_hash.delete('jobs') }
+          before { manifest_hash.delete(keyword) }
 
           it 'parses jobs and return empty array' do
-            expect(parsed_deployment.jobs).to eq([])
+            expect(parsed_deployment.instance_groups).to eq([])
           end
         end
       end
 
-      describe 'job_rename option' do
-        context 'when old_name from job_rename option is referencing a job in jobs section' do
-          before { manifest_hash.merge!('jobs' => [{'name' => 'job-old-name'}]) }
+      describe 'jobs key' do
+        let(:keyword) { "jobs" }
+        it_behaves_like "jobs/instance_groups key"
+      end
 
-          let(:job) do
-            instance_double('Bosh::Director::DeploymentPlan::Job', {
-              name: 'job-old-name',
-              canonical_name: 'job-canonical-name',
-            })
+      describe 'instance_group key' do
+        let(:keyword) { "instance_groups" }
+        it_behaves_like "jobs/instance_groups key"
+
+        context 'when there are both jobs and instance_groups' do
+          before do
+            manifest_hash.merge!('jobs' => [
+                                     { 'name' => 'job1-name' },
+                                     { 'name' => 'job2-name' },
+                                 ],
+                                 'instance_groups' => [
+                                     { 'name' => 'job1-name' },
+                                     { 'name' => 'job2-name' },
+                                 ])
           end
 
-          let(:planner_options) do
-            {
-              'job_rename' => {
-                'old_name' => 'job-old-name',
-                'new_name' => 'job-new-name',
-              }
-            }
-          end
-
-          it 'raises an error because only new_name should reference a job' do
-            allow(DeploymentPlan::Job).to receive(:parse).
-              with(be_a(DeploymentPlan::Planner), {'name' => 'job-old-name'}, event_log, logger).
-              and_return(job)
-
-            expect {
-              parsed_deployment
-            }.to raise_error(
-              DeploymentRenamedJobNameStillUsed,
-              "Renamed job `job-old-name' is still referenced in deployment manifest",
-            )
+          it 'throws an error' do
+            expect {parsed_deployment}.to raise_error(JobBothInstanceGroupAndJob, "Deployment specifies both jobs and instance_groups keys, only one is allowed")
           end
         end
       end

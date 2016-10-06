@@ -41,13 +41,19 @@ run_in_bosh_chroot $chroot "
 
 # Configure /var/log directory
 filenames=( auth.log daemon.log debug kern.log lpr.log mail.err mail.info \
-              mail.log mail.warn messages syslog user.log )
+              mail.log mail.warn messages news/news.crit news/news.err \
+              news/news.notice syslog user.log )
+
+
+run_in_bosh_chroot $chroot "
+  mkdir -p /var/log/news
+"
 
 for filename in ${filenames[@]}
 do
   fullpath=/var/log/$filename
   run_in_bosh_chroot $chroot "
-    touch ${fullpath} && chown syslog:adm ${fullpath} && chmod 640 ${fullpath}
+    touch ${fullpath} && chown syslog:syslog ${fullpath} && chmod 600 ${fullpath}
   "
 done
 
@@ -58,6 +64,9 @@ then
     ln -sf /lib/init/upstart-job /etc/init.d/rsyslog
     update-rc.d rsyslog defaults
   "
+  if is_ppc64le; then
+    sed -i "s@/dev/xconsole@/dev/console@g" $chroot/etc/rsyslog.d/50-default.conf
+  fi
 elif [ -f $chroot/etc/redhat-release ] # Centos or RHEL
 then
   cp $assets_dir/centos_init_d $chroot/etc/init.d/rsyslog

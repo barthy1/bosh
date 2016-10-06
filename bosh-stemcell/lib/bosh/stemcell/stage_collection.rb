@@ -36,6 +36,7 @@ module Bosh::Stemcell
         :bosh_micro_go,
         :aws_cli,
         :logrotate_config,
+        :dev_tools_config,
       ]
     end
 
@@ -43,6 +44,8 @@ module Bosh::Stemcell
       stages = case infrastructure
       when Infrastructure::Aws then
         aws_stages
+      when Infrastructure::Google then
+        google_stages
       when Infrastructure::OpenStack then
         openstack_stages
       when Infrastructure::Vsphere then
@@ -53,6 +56,8 @@ module Bosh::Stemcell
         warden_stages
       when Infrastructure::Azure then
         azure_stages
+      when Infrastructure::Softlayer then
+        softlayer_stages
       end
 
       stages.concat(finish_stemcell_stages)
@@ -62,6 +67,8 @@ module Bosh::Stemcell
       case disk_format
         when 'raw' then
           raw_package_stages
+        when 'rawdisk' then
+          rawdisk_package_stages
         when 'qcow2' then
           qcow2_package_stages
         when 'ovf' then
@@ -105,7 +112,6 @@ module Bosh::Stemcell
       [
         :system_network,
         :system_open_vm_tools,
-        :disable_blank_passwords,
         :system_vsphere_cdrom,
         :system_parameters,
         :bosh_clean,
@@ -133,6 +139,21 @@ module Bosh::Stemcell
       ]
     end
 
+    def google_stages
+      [
+        :system_network,
+        :system_google_modules,
+        :system_google_packages,
+        :system_parameters,
+        :bosh_clean,
+        :bosh_harden,
+        :bosh_google_agent_settings,
+        :bosh_clean_ssh,
+        :image_create,
+        :image_install_grub,
+      ]
+    end
+
     def warden_stages
       [
         :system_parameters,
@@ -142,6 +163,7 @@ module Bosh::Stemcell
         :bosh_enable_password_authentication,
         :bosh_clean_ssh,
         :image_create,
+        :image_install_grub,
       ]
     end
 
@@ -156,6 +178,23 @@ module Bosh::Stemcell
         :bosh_clean_ssh,
         :image_create,
         :image_install_grub,
+      ]
+    end
+
+    def softlayer_stages
+      [
+          :system_network,
+          :system_softlayer_open_iscsi,
+          :system_softlayer_multipath_tools,
+          :disable_blank_passwords,
+          :system_parameters,
+          :bosh_clean,
+          :bosh_harden,
+          :bosh_enable_password_authentication,
+          :bosh_softlayer_agent_settings,
+          :bosh_clean_ssh,
+          :image_create,
+          :image_install_grub,
       ]
     end
 
@@ -175,11 +214,14 @@ module Bosh::Stemcell
         :system_kernel_modules,
         :system_ixgbevf,
         bosh_steps,
+        :password_policies,
+        :tty_config,
         :rsyslog_config,
         :delay_monit_start,
         :system_grub,
         :cron_config,
-        :escape_ctrl_alt_del
+        :escape_ctrl_alt_del,
+        :bosh_audit
       ].flatten
     end
 
@@ -214,13 +256,17 @@ module Bosh::Stemcell
         :system_kernel_modules,
         :system_ixgbevf,
         bosh_steps,
+        :password_policies,
+        :tty_config,
         :rsyslog_config,
         :delay_monit_start,
         :system_grub,
         :vim_tiny,
         :cron_config,
         :escape_ctrl_alt_del,
-      ].flatten
+        :system_users,
+        :bosh_audit
+      ].flatten.reject{ |s| Bosh::Stemcell::Arch.ppc64le? and s ==  :system_ixgbevf }
     end
 
     def photonos_os_stages
@@ -239,17 +285,23 @@ module Bosh::Stemcell
     def bosh_steps
       [
         :bosh_sysctl,
+        :bosh_limits,
         :bosh_users,
         :bosh_monit,
         :bosh_ntpdate,
         :bosh_sudoers,
-        :disable_blank_passwords,
-      ]
+      ].flatten
     end
 
     def raw_package_stages
       [
         :prepare_raw_image_stemcell,
+      ]
+    end
+
+    def rawdisk_package_stages
+      [
+        :prepare_rawdisk_image_stemcell,
       ]
     end
 

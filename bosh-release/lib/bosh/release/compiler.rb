@@ -158,9 +158,13 @@ module Bosh
           spec["networks"] = {"local" => {"ip" => "127.0.0.1"}}
         when "aws"
           spec["networks"] = {"type" => "dynamic"}
+        when "google"
+          spec["networks"] = {"type" => "dynamic"}
         when "openstack"
           spec["networks"] = {"type" => "dynamic"}
         when "azure"
+          spec["networks"] = {"type" => "dynamic"}
+        when "softlayer"
           spec["networks"] = {"type" => "dynamic"}
         else
           puts "WARNING: no CPI specified"
@@ -258,7 +262,6 @@ module Bosh
         properties["blobstore"]["address"] = ip
         properties["postgres"]["address"] = ip
         properties["director"]["address"] = ip
-        properties["redis"]["address"] = ip
         properties["nats"]["address"] = ip
         @spec["properties"] = properties
       end

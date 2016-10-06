@@ -3,7 +3,8 @@ module Bosh::Director
     class Ssh < BaseJob
       DEFAULT_SSH_DATA_LIFETIME = 300
       SSH_TAG = "ssh"
-      @queue = :normal
+
+      @queue = :urgent
 
       def self.job_type
         :ssh
@@ -21,33 +22,39 @@ module Bosh::Director
       def perform
         target = Target.new(@target_payload)
 
-        filter = { deployment_id: @deployment_id }
+        filter = {}
         filter[:job] = target.job if target.job
-
         filter.merge!(target.id_filter)
 
-        instances = @instance_manager.filter_by(filter)
+        deployment = Models::Deployment[@deployment_id]
+        instances = @instance_manager.filter_by(deployment, filter)
 
         ssh_info = instances.map do |instance|
-          agent = @instance_manager.agent_client_for(instance)
+          begin
+            agent = @instance_manager.agent_client_for(instance)
 
-          logger.info("ssh #{@command} `#{instance.job}/#{instance.uuid}'")
-          result = agent.ssh(@command, @params)
-          if target.ids_provided?
-            result["id"] = instance.uuid
-          else
-            result["index"] = instance.index
+            logger.info("ssh #{@command} '#{instance.job}/#{instance.uuid}'")
+            result = agent.ssh(@command, @params)
+            if target.ids_provided?
+              result["id"] = instance.uuid
+            else
+              result["index"] = instance.index
+            end
+
+            if Config.default_ssh_options
+              result["gateway_host"] = Config.default_ssh_options["gateway_host"]
+              result["gateway_user"] = Config.default_ssh_options["gateway_user"]
+            end
+
+            result
+          rescue Exception => e
+            raise e
+          ensure
+            add_event(deployment.name, instance.name, e)
           end
-
-          if Config.default_ssh_options
-            result["gateway_host"] = Config.default_ssh_options["gateway_host"]
-            result["gateway_user"] = Config.default_ssh_options["gateway_user"]
-          end
-
-          result
         end
 
-        result_file.write(Yajl::Encoder.encode(ssh_info))
+        result_file.write(JSON.generate(ssh_info))
         result_file.write("\n")
 
         # task result
@@ -55,6 +62,22 @@ module Bosh::Director
       end
 
       private
+
+      def add_event(deployment_name, instance_name, error = nil)
+        user =  @params['user_regex'] || @params['user']
+        event_manager.create_event(
+            {
+                user:        username,
+                action:      "#{@command} ssh",
+                object_type: 'instance',
+                object_name: instance_name,
+                task:        task_id,
+                error:       error,
+                deployment:  deployment_name,
+                instance:    instance_name,
+                context:     {user: user}
+            })
+      end
 
       class Target
         attr_reader :job, :indexes, :ids

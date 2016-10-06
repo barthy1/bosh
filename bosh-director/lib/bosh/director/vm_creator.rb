@@ -1,30 +1,33 @@
 require 'common/deep_copy'
+require 'securerandom'
 
 module Bosh::Director
   # Creates VM model and call out to CPI to create VM in IaaS
   class VmCreator
     include EncryptionHelper
+    include PasswordHelper
 
-    def initialize(cloud, logger, vm_deleter, disk_manager, job_renderer)
+    def initialize(cloud, logger, vm_deleter, disk_manager, job_renderer, arp_flusher)
       @cloud = cloud
       @logger = logger
       @vm_deleter = vm_deleter
       @disk_manager = disk_manager
       @job_renderer = job_renderer
+      @arp_flusher = arp_flusher
     end
 
-    def create_for_instance_plans(instance_plans, ip_provider, event_log)
+    def create_for_instance_plans(instance_plans, ip_provider)
       return @logger.info('No missing vms to create') if instance_plans.empty?
 
       total = instance_plans.size
-      event_log.begin_stage('Creating missing vms', total)
+      event_log_stage = Config.event_log.begin_stage('Creating missing vms', total)
       ThreadPool.new(max_threads: Config.max_threads, logger: @logger).wrap do |pool|
         instance_plans.each do |instance_plan|
           instance = instance_plan.instance
 
           pool.process do
-            with_thread_name("create_missing_vm(#{instance}/#{total})") do
-              event_log.track(instance.model.to_s) do
+            with_thread_name("create_missing_vm(#{instance.model}/#{total})") do
+              event_log_stage.advance_and_track(instance.model.to_s) do
                 @logger.info('Creating missing VM')
                 disks = [instance.model.persistent_disk_cid].compact
                 create_for_instance_plan(instance_plan, disks)
@@ -45,10 +48,11 @@ module Bosh::Director
 
     def create_for_instance_plan(instance_plan, disks)
       instance = instance_plan.instance
+      instance_model = instance.model
       @logger.info('Creating VM')
 
-      vm_model = create(
-        instance.deployment_model,
+      create(
+        instance_model,
         instance.stemcell,
         instance.cloud_properties,
         instance_plan.network_settings_hash,
@@ -57,19 +61,26 @@ module Bosh::Director
       )
 
       begin
-        instance.bind_to_vm_model(vm_model)
-        VmMetadataUpdater.build.update(vm_model, {})
-
-        agent_client = AgentClient.with_vm(vm_model)
+        VmMetadataUpdater.build.update(instance_model, {})
+        agent_client = AgentClient.with_vm_credentials_and_agent_id(instance_model.credentials, instance_model.agent_id)
         agent_client.wait_until_ready
+
+        if Config.flush_arp
+          ip_addresses = instance_plan.network_settings_hash.map do |index,network|
+            network['ip']
+          end.compact
+
+          @arp_flusher.delete_arp_entries(instance_model.vm_cid, ip_addresses)
+        end
+
         instance.update_trusted_certs
         instance.update_cloud_properties!
       rescue Exception => e
-        @logger.error("Failed to create/contact VM #{vm_model.cid}: #{e.inspect}")
+        @logger.error("Failed to create/contact VM #{instance_model.vm_cid}: #{e.inspect}")
         if Config.keep_unreachable_vms
-          @logger.info("Keeping the VM for debugging")
+          @logger.info('Keeping the VM for debugging')
         else
-          @vm_deleter.delete_for_instance_plan(instance_plan)
+          @vm_deleter.delete_for_instance(instance_model)
         end
         raise e
       end
@@ -83,6 +94,22 @@ module Bosh::Director
 
     private
 
+    def add_event(deployment_name, instance_name, action, object_name = nil, parent_id = nil, error = nil)
+      event = Config.current_job.event_manager.create_event(
+          {
+              parent_id:   parent_id,
+              user:        Config.current_job.username,
+              action:      action,
+              object_type: 'vm',
+              object_name: object_name,
+              task:        Config.current_job.task_id,
+              deployment:  deployment_name,
+              instance:    instance_name,
+              error:       error
+          })
+      event.id
+    end
+
     def apply_initial_vm_state(instance_plan)
       instance_plan.instance.apply_initial_vm_state(instance_plan.spec)
 
@@ -93,25 +120,23 @@ module Bosh::Director
       end
     end
 
-    def create(deployment, stemcell, cloud_properties, network_settings, disks, env)
-      vm = nil
-      vm_cid = nil
-
-      env = Bosh::Common::DeepCopy.copy(env)
-
+    def create(instance_model, stemcell, cloud_properties, network_settings, disks, env)
+      parent_id = add_event(instance_model.deployment.name, instance_model.name, 'create')
       agent_id = self.class.generate_agent_id
-
-      options = {
-        :deployment => deployment,
-        :agent_id => agent_id,
-        :env => env
-      }
+      env = Bosh::Common::DeepCopy.copy(env)
+      options = {:agent_id => agent_id}
 
       if Config.encryption?
         credentials = generate_agent_credentials
         env['bosh'] ||= {}
         env['bosh']['credentials'] = credentials
         options[:credentials] = credentials
+      end
+
+      password = env.fetch('bosh', {}).fetch('password', "")
+      if Config.generate_vm_passwords && password == ""
+        env['bosh'] ||= {}
+        env['bosh']['password'] = sha512_hashed_password
       end
 
       count = 0
@@ -124,22 +149,19 @@ module Bosh::Director
         raise e
       end
 
-      options[:cid] = vm_cid
-      vm = Models::Vm.new(options)
+      options[:vm_cid] = vm_cid
 
-      vm.save
-      vm
+      instance_model.update(options)
     rescue => e
       @logger.error("error creating vm: #{e.message}")
-      delete_vm(vm_cid) if vm_cid
-      vm.destroy if vm
+      if vm_cid
+        parent_id = add_event(instance_model.deployment.name, instance_model.name, 'delete', vm_cid)
+        @vm_deleter.delete_vm(vm_cid)
+        add_event(instance_model.deployment.name, instance_model.name, 'delete', vm_cid, parent_id)
+      end
       raise e
-    end
-
-    def delete_vm(vm_cid)
-      @cloud.delete_vm(vm_cid)
-    rescue => e
-      @logger.error("error cleaning up #{vm_cid}: #{e.message}\n#{e.backtrace.join("\n")}")
+    ensure
+      add_event(instance_model.deployment.name, instance_model.name, 'create', vm_cid, parent_id, e)
     end
 
     def self.generate_agent_id

@@ -6,28 +6,21 @@ module Bosh::Director
     include Rack::Test::Methods
 
     subject(:app) { described_class.new(config) }
-    let(:config) { Config.load_hash(test_config) }
-    let(:temp_dir) { Dir.mktmpdir}
-    let(:test_config) do
-      config = Psych.load(spec_asset('test-director-config.yml'))
-      config['dir'] = temp_dir
-      config['blobstore'] = {
-        'provider' => 'local',
-        'options' => {'blobstore_path' => File.join(temp_dir, 'blobstore')}
-      }
+    let(:config) do
+      config = Config.load_hash(SpecHelper.spec_get_director_config)
+      identity_provider = Support::TestIdentityProvider.new(config.get_uuid_provider)
+      allow(config).to receive(:identity_provider).and_return(identity_provider)
       config
     end
 
     before { App.new(config) }
-
-    after { FileUtils.rm_rf(temp_dir) }
 
     describe 'POST', '/' do
       context 'authenticated access' do
         before { authorize 'admin', 'admin' }
 
         it 'allows json body with remote stemcell location' do
-          post '/', Yajl::Encoder.encode('location' => 'http://stemcell_url'), { 'CONTENT_TYPE' => 'application/json' }
+          post '/', JSON.generate('location' => 'http://stemcell_url'), { 'CONTENT_TYPE' => 'application/json' }
           expect_redirect_to_queued_task(last_response)
         end
 
@@ -40,7 +33,7 @@ module Bosh::Director
 
         context 'when a sha1 is provided' do
           it 'allows json body with remote stemcell location and sha1' do
-            post '/', Yajl::Encoder.encode({'location' => 'http://stemcell_url', 'sha1' => 'shawone'}), { 'CONTENT_TYPE' => 'application/json' }
+            post '/', JSON.generate({'location' => 'http://stemcell_url', 'sha1' => 'shawone'}), { 'CONTENT_TYPE' => 'application/json' }
             expect_redirect_to_queued_task(last_response)
           end
 
@@ -68,6 +61,15 @@ module Bosh::Director
       end
 
       context 'unauthenticated access' do
+        it 'returns 401' do
+          post '/', '', { 'CONTENT_TYPE' => 'application/json' }
+          expect(last_response.status).to eq(401)
+        end
+      end
+
+      context 'team admin access' do
+        before { authorize 'dev-team-member', 'dev-team-member' }
+
         it 'returns 401' do
           post '/', '', { 'CONTENT_TYPE' => 'application/json' }
           expect(last_response.status).to eq(401)
@@ -102,7 +104,7 @@ module Bosh::Director
               perform
               expect(last_response.status).to eq(200)
 
-              body = Yajl::Parser.parse(last_response.body)
+              body = JSON.parse(last_response.body)
               expect(body).to be_an_instance_of(Array)
               expect(body.size).to eq(10)
 
@@ -125,7 +127,7 @@ module Bosh::Director
               perform
               expect(last_response.status).to eq(200)
 
-              body = Yajl::Parser.parse(last_response.body)
+              body = JSON.parse(last_response.body)
               expect(body).to be_an_instance_of(Array)
               expect(body.size).to eq(10)
 
@@ -148,7 +150,7 @@ module Bosh::Director
           it 'returns empty collection if there are no stemcells' do
             perform
             expect(last_response.status).to eq(200)
-            expect(Yajl::Parser.parse(last_response.body)).to eq([])
+            expect(JSON.parse(last_response.body)).to eq([])
           end
         end
       end
@@ -168,32 +170,14 @@ module Bosh::Director
           expect(last_response.status).to eq(401)
         end
       end
-    end
 
-    describe 'scope' do
-      let(:identity_provider) { Support::TestIdentityProvider.new }
-      let(:config) do
-        config = Config.load_hash(test_config)
-        allow(config).to receive(:identity_provider).and_return(identity_provider)
-        config
-      end
+      context 'team admin access' do
+        before { authorize 'dev-team-member', 'dev-team-member' }
+        let(:stemcells) { [] }
 
-      it 'accepts read scope for routes allowing read access' do
-        authorize 'admin', 'admin'
-
-        get '/'
-        expect(identity_provider.scope).to eq(:read)
-
-        non_read_routes = [
-          [:post, '/', 'Content-Type', 'application/json'],
-          [:post, '/', 'Content-Type', 'application/multipart'],
-          [:delete, '/stemcell-name/stemcell-version', '', '']
-        ]
-
-        non_read_routes.each do |method, route, header, header_value|
-          header header, header_value
-          method(method).call(route, '{}')
-          expect(identity_provider.scope).to eq(:write)
+        it 'returns stemcells if any' do
+          perform
+          expect(last_response.status).to eq(200)
         end
       end
     end

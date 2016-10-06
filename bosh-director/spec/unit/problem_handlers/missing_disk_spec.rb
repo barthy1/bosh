@@ -3,7 +3,7 @@ require 'spec_helper'
 describe Bosh::Director::ProblemHandlers::MissingDisk do
   let(:handler) { described_class.new(disk.id, {}) }
   before { allow(handler).to receive(:cloud).and_return(cloud) }
-  before { allow(handler).to receive(:agent_client).with(instance.vm).and_return(agent_client) }
+  before { allow(handler).to receive(:agent_client).with(instance.credentials, instance.agent_id).and_return(agent_client) }
 
   let(:cloud) { instance_double('Bosh::Cloud', detach_disk: nil) }
   before { allow(Bosh::Director::Config).to receive(:cloud).and_return(cloud) }
@@ -12,11 +12,7 @@ describe Bosh::Director::ProblemHandlers::MissingDisk do
 
   let(:instance) do
     Bosh::Director::Models::Instance.
-      make(job: 'mysql_node', index: 3, vm_id: vm.id)
-  end
-
-  let(:vm) do
-    Bosh::Director::Models::Vm.make(cid: 'vm-cid')
+      make(job: 'mysql_node', index: 3, vm_cid: 'vm-cid', credentials: {'secret' => 'things'}, uuid: "uuid-42")
   end
 
   let!(:disk) do
@@ -31,14 +27,18 @@ describe Bosh::Director::ProblemHandlers::MissingDisk do
   end
 
   it 'has well-formed description' do
-    expect(handler.description).to eq("Disk `disk-cid' (mysql_node/3, 300M) is missing")
+    expect(handler.description).to eq("Disk 'disk-cid' (mysql_node/uuid-42, 300M) is missing")
   end
 
   describe 'resolutions' do
     describe 'delete_disk_reference' do
+      let(:event_manager) {Bosh::Director::Api::EventManager.new(true)}
+      let(:update_job) {instance_double(Bosh::Director::Jobs::UpdateDeployment, username: 'user', task_id: 42, event_manager: event_manager)}
+
       before do
         Bosh::Director::Models::Snapshot.make(persistent_disk: disk, snapshot_cid: 'snapshot-cid')
         allow(agent_client).to receive(:list_disk).and_return({})
+        allow(Bosh::Director::Config).to receive(:current_job).and_return(update_job)
       end
 
       def self.it_ignores_cloud_disk_errors
@@ -53,7 +53,7 @@ describe Bosh::Director::ProblemHandlers::MissingDisk do
         end
 
         it 'ignores the error if disk is not found' do
-          allow(cloud).to receive(:delete_disk).with('disk-cid') do
+          allow(cloud).to receive(:detach_disk).with('vm-cid', 'disk-cid') do
             raise Bosh::Clouds::DiskNotFound.new(false)
           end
 
@@ -191,8 +191,7 @@ describe Bosh::Director::ProblemHandlers::MissingDisk do
 
       context 'when vm is destroyed' do
         before do
-          vm.instance.update(:vm => nil)
-          vm.destroy
+          instance.update(vm_cid: nil)
         end
 
         it 'deletes disk related info from database directly' do

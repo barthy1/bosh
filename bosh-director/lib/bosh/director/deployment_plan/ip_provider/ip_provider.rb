@@ -51,7 +51,7 @@ module Bosh::Director
           end
 
           raise NetworkReservationNotEnoughCapacity,
-            "Failed to reserve IP for '#{reservation.instance}' for manual network '#{reservation.network.name}': no more available"
+            "Failed to reserve IP for '#{reservation.instance_model}' for manual network '#{reservation.network.name}': no more available"
 
         else
 
@@ -92,7 +92,7 @@ module Bosh::Director
         end
 
         @logger.debug('Reserving existing ips')
-        network, subnet = find_network_and_subnet_containing(reservation.ip)
+        network, subnet = find_network_and_subnet_containing(reservation.ip, reservation.network.name)
         if subnet
           @logger.debug("Marking existing IP #{format_ip(reservation.ip)} as reserved")
           reservation.resolve_network(network)
@@ -130,18 +130,22 @@ module Bosh::Director
       end
 
       def filter_subnet_by_instance_az(reservation)
-        instance_az = reservation.instance.availability_zone
-        if instance_az.nil?
+        instance_az_name = reservation.instance_model.availability_zone
+        if instance_az_name.nil?
           reservation.network.subnets
         else
           reservation.network.subnets.select do |subnet|
-            subnet.availability_zone_names.include?(instance_az.name)
+            subnet.availability_zone_names.include?(instance_az_name)
           end
         end
       end
 
-      def find_network_and_subnet_containing(cidr_ip)
-        @networks.values.select(&:manual?).each do |network|
+      def find_network_and_subnet_containing(cidr_ip, network_name)
+        networks = @networks.values.dup
+
+        networks.unshift(networks.find { |network| network.name == network_name }).compact!
+
+        networks.select(&:manual?).each do |network|
           subnet = network.subnets.find { |subnet| subnet.is_reservable?(cidr_ip) }
           return [network, subnet] if subnet
         end

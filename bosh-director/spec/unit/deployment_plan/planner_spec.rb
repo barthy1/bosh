@@ -2,11 +2,47 @@ require 'spec_helper'
 
 module Bosh::Director
   module DeploymentPlan
+    describe CloudPlanner do
+      subject { described_class.new({
+        :networks => {},
+        :global_network_resolver => [],
+        :resource_pools => [],
+        :disk_types => [],
+        :availability_zones_list => [],
+        :compilation => {},
+        :vm_extensions => vm_extensions,
+        :ip_provider_factory => nil,
+        :logger => nil,
+      }) }
+
+      context '#vm_extension' do
+        let(:vm_extensions) do
+          [
+            VmExtension.new({
+              'name' => 'test1',
+              'cloud_properties' => {
+                'fake-property' => 'fake-value',
+              }
+            })
+          ]
+        end
+
+        it 'returns a defined vm_extension' do
+          expect(subject.vm_extension('test1').cloud_properties['fake-property']).to eq('fake-value')
+        end
+
+        it 'raises for an undefined vm_extension' do
+          expect{ subject.vm_extension('non-existant') }.to raise_error("The vm_extension 'non-existant' has not been configured in cloud-config.")
+        end
+      end
+    end
+
     describe Planner do
-      subject(:planner) { described_class.new(planner_attributes, minimal_manifest, cloud_config, deployment_model) }
+      subject(:planner) { described_class.new(planner_attributes, minimal_manifest, cloud_config, runtime_config, deployment_model) }
 
       let(:event_log) { instance_double('Bosh::Director::EventLog::Log') }
       let(:cloud_config) { nil }
+      let(:runtime_config) { nil }
       let(:manifest_text) { generate_manifest_text }
       let(:planner_attributes) { {name: 'mycloud', properties: {}} }
       let(:deployment_model) { Models::Deployment.make }
@@ -78,7 +114,7 @@ module Bosh::Director
           deployment_model.add_stemcell(stemcell_model)
           cloud_planner = CloudPlanner.new({
               networks: [Network.new('default', logger)],
-              global_network_resolver: GlobalNetworkResolver.new(planner),
+              global_network_resolver: GlobalNetworkResolver.new(planner, [], logger),
               ip_provider_factory: IpProviderFactory.new(true, logger),
               disk_types: [],
               availability_zones_list: [],
@@ -94,56 +130,67 @@ module Bosh::Director
         it 'should parse recreate' do
           expect(planner.recreate).to eq(false)
 
-          plan = described_class.new(planner_attributes, manifest_text, cloud_config, deployment_model, 'recreate' => true)
+          plan = described_class.new(planner_attributes, manifest_text, cloud_config, runtime_config, deployment_model, 'recreate' => true)
           expect(plan.recreate).to eq(true)
         end
 
-        describe 'vm_models' do
-          it 'returns a list of VMs in deployment' do
-            vm_model1 = Models::Vm.make(deployment: deployment_model)
-            vm_model2 = Models::Vm.make(deployment: deployment_model)
-
-            expect(planner.vm_models).to eq([vm_model1, vm_model2])
-          end
-        end
-
         describe '#jobs_starting_on_deploy' do
-          before { subject.add_job(job1) }
+          before { subject.add_instance_group(job1) }
           let(:job1) do
-            instance_double('Bosh::Director::DeploymentPlan::Job', {
+            instance_double('Bosh::Director::DeploymentPlan::InstanceGroup', {
                 name: 'fake-job1-name',
                 canonical_name: 'fake-job1-cname',
+                is_service?: true,
+                is_errand?: false,
               })
           end
 
-          before { subject.add_job(job2) }
+          before { subject.add_instance_group(job2) }
           let(:job2) do
-            instance_double('Bosh::Director::DeploymentPlan::Job', {
+            instance_double('Bosh::Director::DeploymentPlan::InstanceGroup', {
                 name: 'fake-job2-name',
                 canonical_name: 'fake-job2-cname',
+                lifecycle: 'errand',
+                is_service?: false,
+                is_errand?: true,
               })
           end
 
-          context 'when there is at least one job that runs when deploy starts' do
-            before { allow(job1).to receive(:starts_on_deploy?).with(no_args).and_return(false) }
-            before { allow(job2).to receive(:starts_on_deploy?).with(no_args).and_return(true) }
+          context 'with errand running via keep-alive' do
+            before do
+              allow(job2).to receive(:instances).and_return([
+                    instance_double('Bosh::Director::DeploymentPlan::Instance', {
+                        model: instance_double('Bosh::Director::Models::Instance', {
+                            vm_cid: 'foo-1234',
+                          })
+                      })
+                  ])
+            end
 
-            it 'only returns jobs that start on deploy' do
-              expect(subject.jobs_starting_on_deploy).to eq([job2])
+            it 'returns both the regular job and keep-alive errand' do
+              expect(subject.jobs_starting_on_deploy).to eq([job1, job2])
             end
           end
 
-          context 'when there are no jobs that run when deploy starts' do
-            before { allow(job1).to receive(:starts_on_deploy?).with(no_args).and_return(false) }
-            before { allow(job2).to receive(:starts_on_deploy?).with(no_args).and_return(false) }
+          context 'with errand not running' do
+            before do
+              allow(job2).to receive(:instances).and_return([
+                    instance_double('Bosh::Director::DeploymentPlan::Instance', {
+                        model: instance_double('Bosh::Director::Models::Instance', {
+                            vm_cid: nil,
+                          })
+                      })
+                  ])
+            end
 
-            it 'only returns jobs that start on deploy' do
-              expect(subject.jobs_starting_on_deploy).to eq([])
+            it 'returns only the regular job' do
+              expect(subject.jobs_starting_on_deploy).to eq([job1])
             end
           end
         end
 
-        describe '#persist_updates!' do
+        # '@todo mysql2 seems to have issues with transactions and threads (i.e. example is wrapped in transaction, but locks are threaded in the test)'
+        describe '#persist_updates!', :if => ENV['DB'] != "mysql" do
           before do
             setup_global_config_and_stubbing
           end
@@ -235,7 +282,7 @@ module Bosh::Director
           context 'when using vm types and stemcells' do
             let(:resource_pools) { [] }
             before do
-              planner.add_stemcell(Stemcell.new({
+              planner.add_stemcell(Stemcell.parse({
                     'alias' => 'default',
                     'name' => 'default',
                     'version' => '1',
@@ -257,20 +304,8 @@ module Bosh::Director
           end
         end
 
-        describe 'mark_vm_for_deletion' do
-          it 'records vms' do
-            vm_model1 = Models::Vm.make(deployment: deployment_model)
-            vm_model2 = Models::Vm.make(deployment: deployment_model)
-
-            planner.mark_vm_for_deletion(vm_model1)
-            planner.mark_vm_for_deletion(vm_model2)
-
-            expect(planner.unneeded_vms).to eq([vm_model1, vm_model2])
-          end
-        end
-
         def setup_global_config_and_stubbing
-          Bosh::Director::App.new(Bosh::Director::Config.load_file(asset('test-director-config.yml')))
+          Bosh::Director::App.new(Bosh::Director::Config.load_hash(SpecHelper.spec_get_director_config))
           allow(Bosh::Director::Config).to receive(:cloud) { instance_double(Bosh::Cloud) }
         end
       end

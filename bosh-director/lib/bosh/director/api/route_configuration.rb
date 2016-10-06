@@ -12,7 +12,9 @@ module Bosh
           controllers = {}
           controllers['/backups'] = Bosh::Director::Api::Controllers::BackupsController.new(@config)
           controllers['/cleanup'] = Bosh::Director::Api::Controllers::CleanupController.new(@config)
+          controllers['/restore'] = Bosh::Director::Api::Controllers::RestoreController.new(@config)
           controllers['/cloud_configs'] = Bosh::Director::Api::Controllers::CloudConfigsController.new(@config)
+          controllers['/runtime_configs'] = Bosh::Director::Api::Controllers::RuntimeConfigsController.new(@config)
           controllers['/deployments'] = Bosh::Director::Api::Controllers::DeploymentsController.new(@config)
           controllers['/disks'] = Bosh::Director::Api::Controllers::DisksController.new(@config)
           controllers['/info'] = Bosh::Director::Api::Controllers::InfoController.new(@config)
@@ -28,6 +30,8 @@ module Bosh
           controllers['/task'] = Bosh::Director::Api::Controllers::TaskController.new(@config)
           controllers['/tasks'] = Bosh::Director::Api::Controllers::TasksController.new(@config)
           controllers['/users'] = Bosh::Director::Api::Controllers::UsersController.new(@config)
+          controllers['/events'] = Bosh::Director::Api::Controllers::EventsController.new(@config)
+          controllers['/vms'] = Bosh::Director::Api::Controllers::VmsController.new(@config)
           controllers
         end
       end

@@ -18,7 +18,9 @@ module Bosh::Director
       delete_unneeded_instances
 
       instance_plans = @job.needed_instance_plans.select do | instance_plan |
-        if instance_plan.changed?
+        if instance_plan.should_be_ignored?
+          false
+        elsif instance_plan.changed?
           true
         else
           # no changes necessary for the agent, but some metadata may have
@@ -31,6 +33,8 @@ module Bosh::Director
       if instance_plans.empty?
         @logger.info("No instances to update for '#{@job.name}'")
         return
+      else
+        @job.did_change = true
       end
 
       instance_plans.each do |instance_plan|
@@ -41,21 +45,39 @@ module Bosh::Director
       @logger.info("Found #{instance_plans.size} instances to update")
       event_log_stage = @event_log.begin_stage('Updating job', instance_plans.size, [ @job.name ])
 
-      ThreadPool.new(:max_threads => @job.update.max_in_flight).wrap do |pool|
-        num_canaries = [ @job.update.canaries, instance_plans.size ].min
-        @logger.info("Starting canary update num_canaries=#{num_canaries}")
-        update_canaries(pool, instance_plans, num_canaries, event_log_stage)
-
-        @logger.info('Waiting for canaries to update')
-        pool.wait
-
-        @logger.info('Finished canary update')
-
-        @logger.info('Continuing the rest of the update')
-        update_instances(pool, instance_plans, event_log_stage)
+      ordered_azs = []
+      instance_plans.each do | instance_plan |
+        unless ordered_azs.include?(instance_plan.instance.availability_zone)
+          ordered_azs.push(instance_plan.instance.availability_zone)
+        end
       end
 
-      @logger.info('Finished the rest of the update')
+      instance_plans_by_az = instance_plans.group_by{ |instance_plan| instance_plan.instance.availability_zone }
+      canaries_done = false
+
+      ordered_azs.each do | az |
+        az_instance_plans = instance_plans_by_az[az]
+        @logger.info("Starting to update az '#{az}'")
+        ThreadPool.new(:max_threads => @job.update.max_in_flight).wrap do |pool|
+          unless canaries_done
+            num_canaries = [@job.update.canaries, az_instance_plans.size].min
+            @logger.info("Starting canary update num_canaries=#{num_canaries}")
+            update_canaries(pool, az_instance_plans, num_canaries, event_log_stage)
+
+            @logger.info('Waiting for canaries to update')
+            pool.wait
+
+            @logger.info('Finished canary update')
+
+            canaries_done = true
+          end
+
+          @logger.info('Continuing the rest of the update')
+          update_instances(pool, az_instance_plans, event_log_stage)
+          @logger.info('Finished the rest of the update')
+        end
+        @logger.info("Finished updating az '#{az}'")
+      end
     end
 
     private
@@ -63,10 +85,14 @@ module Bosh::Director
     def delete_unneeded_instances
       unneeded_instance_plans = @job.obsolete_instance_plans
       unneeded_instances = @job.unneeded_instances
-      return if unneeded_instances.empty?
+      if unneeded_instances.empty?
+        return
+      else
+        @job.did_change = true
+      end
 
       event_log_stage = @event_log.begin_stage('Deleting unneeded instances', unneeded_instances.size, [@job.name])
-      dns_manager = DnsManager.create
+      dns_manager = DnsManagerProvider.create
       deleter = InstanceDeleter.new(@deployment_plan.ip_provider, dns_manager, @disk_manager)
       deleter.delete_instance_plans(unneeded_instance_plans, event_log_stage, max_threads: @job.update.max_in_flight)
 

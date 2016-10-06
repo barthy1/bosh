@@ -89,13 +89,14 @@ module Bosh::Clouds
       end
 
       save_cpi_log(parsed_response['log'])
+      save_cpi_log(stderr)
 
       parsed_response['result']
     end
 
     def checked_cpi_exec_path
       unless File.executable?(@cpi_path)
-        raise NonExecutable, "Failed to run cpi: `#{@cpi_path}' is not executable"
+        raise NonExecutable, "Failed to run cpi: '#{@cpi_path}' is not executable"
       end
       @cpi_path
     end

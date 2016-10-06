@@ -10,13 +10,13 @@ module Bosh::Director
       def self.parse(network_name, subnet_spec, availability_zones, legacy_reserved_ranges)
         @logger = Config.logger
 
-        @logger.debug("reserved ranges #{legacy_reserved_ranges.inspect}")
+        @logger.debug("reserved ranges #{legacy_reserved_ranges.map {|r| r.first == r.last ? "#{r.first}" : "#{r.first}-#{r.last}"}.join(', ')}")
         range_property = safe_property(subnet_spec, "range", :class => String)
         range = NetAddr::CIDR.create(range_property)
 
         if range.size <= 1
           raise NetworkInvalidRange,
-            "Invalid network range `#{range_property}', " +
+            "Invalid network range '#{range_property}', " +
               "should include at least 2 IPs"
         end
 
@@ -42,7 +42,7 @@ module Bosh::Director
           end
         end
 
-        dns_manager = DnsManager.create
+        dns_manager = DnsManagerProvider.create
         dns_spec = safe_property(subnet_spec, 'dns', :class => Array, :optional => true)
         dns = dns_manager.dns_servers(network_name, dns_spec)
 
@@ -61,18 +61,21 @@ module Bosh::Director
         each_ip(reserved_property) do |ip|
           unless range.contains?(ip)
             raise NetworkReservedIpOutOfRange,
-              "Reserved IP `#{format_ip(ip)}' is out of " +
-                "network `#{network_name}' range"
+              "Reserved IP '#{format_ip(ip)}' is out of " +
+                "network '#{network_name}' range"
           end
           restricted_ips.add(ip)
         end
 
         static_ips = Set.new
         each_ip(static_property) do |ip|
-          unless range.contains?(ip) && !restricted_ips.include?(ip)
+          if restricted_ips.include?(ip)
             raise NetworkStaticIpOutOfRange,
-              "Static IP `#{format_ip(ip)}' is out of " +
-                "network `#{network_name}' range"
+              "Static IP '#{format_ip(ip)}' is in network '#{network_name}' reserved range"
+          end
+          unless range.contains?(ip)
+            raise NetworkStaticIpOutOfRange,
+              "Static IP '#{format_ip(ip)}' is out of network '#{network_name}' range"
           end
           static_ips.add(ip)
         end
@@ -135,7 +138,7 @@ module Bosh::Director
 
       def self.invalid_gateway(network_name, reason)
         raise NetworkInvalidGateway,
-              "Invalid gateway for network `#{network_name}': #{reason}"
+              "Invalid gateway for network '#{network_name}': #{reason}"
       end
 
       def self.check_validity_of_subnet_availability_zone(availability_zone_name, availability_zones, network_name)

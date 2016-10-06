@@ -1,24 +1,25 @@
 module Bosh::Director
   class ProblemResolver
 
-    attr_reader :event_log, :logger
+    attr_reader :logger
 
     def initialize(deployment)
       @deployment = deployment
       @resolved_count = 0
+      @resolution_error_logs = StringIO.new
 
       #temp
-      @event_log = Config.event_log
+      @event_log_stage = nil
       @logger = Config.logger
     end
 
     def begin_stage(stage_name, n_steps)
-      event_log.begin_stage(stage_name, n_steps)
+      @event_log_stage = Config.event_log.begin_stage(stage_name, n_steps)
       logger.info(stage_name)
     end
 
     def track_and_log(task, log = true)
-      event_log.track(task) do |ticker|
+      @event_log_stage.advance_and_track(task) do |ticker|
         logger.info(task) if log
         yield ticker if block_given?
       end
@@ -42,7 +43,10 @@ module Bosh::Director
           apply_resolution(problem)
         end
       end
-      @resolved_count
+
+      error_message = @resolution_error_logs.string.empty? ? nil : @resolution_error_logs.string.chomp
+
+      [@resolved_count, error_message]
     end
 
     private
@@ -57,7 +61,7 @@ module Bosh::Director
       resolution_summary ||= 'no resolution'
 
       begin
-        track_and_log("#{problem_summary}: #{resolution_summary}") do
+        track_and_log("#{problem.description} (#{problem_summary}): #{resolution_summary}") do
           handler.apply_resolution(resolution)
         end
       rescue Bosh::Director::ProblemHandlerError => e
@@ -75,8 +79,10 @@ module Bosh::Director
     private
 
     def log_resolution_error(problem, error)
-      logger.error("Error resolving problem `#{problem.id}': #{error}")
+      error_message = "Error resolving problem '#{problem.id}': #{error}"
+      logger.error(error_message)
       logger.error(error.backtrace.join("\n"))
+      @resolution_error_logs.puts(error_message)
     end
   end
 end

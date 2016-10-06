@@ -2,34 +2,45 @@
 require_relative '../../spec/support/deployments'
 
 Sham.define do
-  name          { |index| "name-#{index}" }
-  username      { |index| "username-#{index}" }
-  password      { |index| "password-#{index}" }
-  version       { |index| "version-#{index}" }
-  manifest      { |index| "manifest-#{index}" }
-  job           { |index| "job-#{index}"}
-  vm_cid        { |index| "vm-cid-#{index}" }
-  disk_cid      { |index| "disk-cid-#{index}" }
-  snapshot_cid  { |index| "snapshot-cid-#{index}" }
-  stemcell_cid  { |index| "stemcell-cid-#{index}" }
-  blobstore_id  { |index| "blobstore-id-#{index}" }
-  agent_id      { |index| "agent-id-#{index}" }
-  index         { |index| index }
-  description   { |index| "description #{index}" }
-  type          { |index| "type #{index}" }
-  sha1          { |index| "sha1-#{index}" }
-  build         { |index| index }
-  ip            { |index|
-                  octet = index % 255
-                  "#{octet}.#{octet}.#{octet}.#{octet}"
-                }
-  ptr           { |index|
-                  octet = index % 255
-                  "#{octet}.#{octet}.#{octet}.in-addr.arpa"
-                }
+  name             { |index| "name-#{index}" }
+  username         { |index| "username-#{index}" }
+  object_name      { |index| "deployment-#{index}" }
+  password         { |index| "password-#{index}" }
+  version          { |index| "version-#{index}" }
+  manifest         { |index| "manifest-#{index}" }
+  job              { |index| "job-#{index}"}
+  vm_cid           { |index| "vm-cid-#{index}" }
+  disk_cid         { |index| "disk-cid-#{index}" }
+  snapshot_cid     { |index| "snapshot-cid-#{index}" }
+  stemcell_cid     { |index| "stemcell-cid-#{index}" }
+  stemcell_os      { |index| "stemcell-os-#{index}" }
+  stemcell_version { |index| "stemcell-version-#{index}" }
+  blobstore_id     { |index| "blobstore-id-#{index}" }
+  agent_id         { |index| "agent-id-#{index}" }
+  uuid             { |index| "uuid-#{index}" }
+  director_uuid    { |index| "director-uuid-#{index}" }
+  index            { |index| index }
+  description      { |index| "description #{index}" }
+  type             { |index| "type #{index}" }
+  sha1             { |index| "sha1-#{index}" }
+  build            { |index| index }
+  ip               { |index|
+                     octet = index % 255
+                     "#{octet}.#{octet}.#{octet}.#{octet}"
+                   }
+  ptr              { |index|
+                     octet = index % 255
+                     "#{octet}.#{octet}.#{octet}.in-addr.arpa"
+                   }
+  lock_name     { |index| "lock-resource-entity#{index}"}
 end
 
 module Bosh::Director::Models
+
+  DirectorAttribute.blueprint do
+    name { 'uuid' }
+    value { Sham.director_uuid }
+  end
 
   Release.blueprint do
     name { Sham.name }
@@ -66,10 +77,11 @@ module Bosh::Director::Models
 
   CompiledPackage.blueprint do
     package           { Package.make }
-    stemcell          { Stemcell.make }
     build             { Sham.build }
     blobstore_id      { Sham.blobstore_id }
     sha1              { Sham.sha1 }
+    stemcell_os       { Sham.stemcell_os }
+    stemcell_version  { Sham.stemcell_version }
     dependency_key    { "[]" }
   end
 
@@ -78,18 +90,14 @@ module Bosh::Director::Models
     manifest  { Sham.manifest }
   end
 
-  Vm.blueprint do
-    deployment  { Deployment.make }
-    agent_id    { Sham.agent_id }
-    cid         { Sham.vm_cid }
-  end
-
   Instance.blueprint do
     deployment  { Deployment.make }
     job         { Sham.job }
     index       { Sham.index }
-    vm          { Vm.make(deployment: object.deployment) }
-    state       { "started" }
+    state       { 'started' }
+    vm_cid      { Sham.vm_cid }
+    agent_id    { Sham.agent_id }
+    uuid        { Sham.uuid }
   end
 
   IpAddress.blueprint do
@@ -158,10 +166,43 @@ module Bosh::Director::Models
     manifest { Bosh::Spec::Deployments.simple_cloud_config }
   end
 
+  RuntimeConfig.blueprint do
+    manifest { Bosh::Spec::Deployments.simple_runtime_config }
+  end
+
   DeploymentProperty.blueprint do
     deployment { Deployment.make }
     name { Sham.name }
     value { "value" }
+  end
+
+  Lock.blueprint do
+    name        { Sham.lock_name }
+    expired_at  { Time.now }
+    uid         { SecureRandom.uuid }
+  end
+
+  LogBundle.blueprint do
+    timestamp { Time.now }
+    blobstore_id { Sham.blobstore_id }
+  end
+
+  Event.blueprint do
+    action      { 'create'}
+    object_type {'deployment' }
+    object_name { Sham.object_name }
+    user        { Sham.username }
+    timestamp   { Time.now }
+  end
+
+  Team.blueprint do
+    name      { Sham.name }
+  end
+
+  LocalDnsBlob.blueprint do
+    blobstore_id { Sham.blobstore_id }
+    sha1         { Sham.sha1 }
+    created_at   { Time.new }
   end
 
   module Dns

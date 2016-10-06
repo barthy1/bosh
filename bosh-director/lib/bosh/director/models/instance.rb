@@ -3,7 +3,6 @@ require 'securerandom'
 module Bosh::Director::Models
   class Instance < Sequel::Model(Bosh::Director::Config.db)
     many_to_one :deployment
-    many_to_one :vm
     one_to_many :persistent_disks
     one_to_many :rendered_templates_archives
     one_to_many :ip_addresses
@@ -12,7 +11,6 @@ module Bosh::Director::Models
     def validate
       validates_presence [:deployment_id, :job, :index, :state]
       validates_unique [:deployment_id, :job, :index]
-      validates_unique [:vm_id] if vm_id
       validates_integer :index
       validates_includes %w(started stopped detached), :state
     end
@@ -43,7 +41,8 @@ module Bosh::Director::Models
 
     def cloud_properties_hash
       if cloud_properties.nil?
-        spec['vm_type']['cloud_properties']
+        return {} if spec.nil? || spec['vm_type'].nil?
+        spec['vm_type']['cloud_properties'] || {}
       else
         JSON.parse(cloud_properties)
       end
@@ -63,14 +62,22 @@ module Bosh::Director::Models
       self.dns_records = JSON.dump(list)
     end
 
+    def name
+      "#{self.job}/#{self.uuid}"
+    end
+
     def to_s
-      "#{self.job}/#{self.uuid} (#{self.index})"
+      "#{self.job}/#{self.index} (#{self.uuid})"
     end
 
     def spec
       return nil if spec_json.nil?
 
-      result = Yajl::Parser.parse(spec_json)
+      begin
+        result = JSON.parse(spec_json)
+      rescue JSON::ParserError
+        return 'error'
+      end
       if result['resource_pool'].nil?
         result
       else
@@ -93,20 +100,47 @@ module Bosh::Director::Models
     end
 
     def spec=(spec)
-      self.spec_json = Yajl::Encoder.encode(spec)
-    end
-
-    def bind_to_vm_model(vm)
-      self.vm = vm
-    end
-
-    def env
-      if vm
-        @env = vm.env
-      else
-        @env = {}
+      begin
+        self.spec_json = spec.nil? ? nil : JSON.generate(spec)
+      rescue JSON::GeneratorError
+        self.spec_json = 'error'
       end
-      @env
+    end
+
+    def spec_p(property_path)
+      current_prop = spec
+      property_path.split('.').each do |prop|
+        return nil if current_prop.nil? || !current_prop.is_a?(Hash)
+        current_prop = current_prop[prop]
+      end
+      current_prop
+    end
+
+    def vm_env
+      return {} if spec.nil?
+      spec['env'] || {}
+    end
+
+    def credentials
+      object_or_nil(credentials_json)
+    end
+
+    def credentials=(spec)
+      self.credentials_json = json_encode(spec)
+    end
+
+    private
+
+    def object_or_nil(value)
+      if value == 'null' || value.nil?
+        nil
+      else
+        JSON.parse(value)
+      end
+    end
+
+    def json_encode(value)
+      value.nil? ? 'null' : JSON.generate(value)
     end
   end
 

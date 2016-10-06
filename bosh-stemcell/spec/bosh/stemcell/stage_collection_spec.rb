@@ -1,4 +1,5 @@
 require 'spec_helper'
+require 'bosh/stemcell/arch'
 require 'bosh/stemcell/stage_collection'
 
 module Bosh::Stemcell
@@ -35,18 +36,22 @@ module Bosh::Stemcell
               :system_kernel_modules,
               :system_ixgbevf,
               :bosh_sysctl,
+              :bosh_limits,
               :bosh_users,
               :bosh_monit,
               :bosh_ntpdate,
               :bosh_sudoers,
-              :disable_blank_passwords,
+              :password_policies,
+              :tty_config,
               :rsyslog_config,
               :delay_monit_start,
               :system_grub,
               :vim_tiny,
               :cron_config,
               :escape_ctrl_alt_del,
-            ]
+              :system_users,
+              :bosh_audit,
+            ].reject{ |s| Bosh::Stemcell::Arch.ppc64le? and s ==  :system_ixgbevf }
           )
         end
       end
@@ -65,16 +70,19 @@ module Bosh::Stemcell
               :system_kernel_modules,
               :system_ixgbevf,
               :bosh_sysctl,
+              :bosh_limits,
               :bosh_users,
               :bosh_monit,
               :bosh_ntpdate,
               :bosh_sudoers,
-              :disable_blank_passwords,
+              :password_policies,
+              :tty_config,
               :rsyslog_config,
               :delay_monit_start,
               :system_grub,
               :cron_config,
               :escape_ctrl_alt_del,
+              :bosh_audit,
             ]
           )
         end
@@ -93,11 +101,11 @@ module Bosh::Stemcell
               :base_ssh,
               :system_kernel_modules,
               :bosh_sysctl,
+              :bosh_limits,
               :bosh_users,
               :bosh_monit,
               :bosh_ntpdate,
               :bosh_sudoers,
-              :disable_blank_passwords,
               :rsyslog_config,
               :delay_monit_start,
               :system_grub,
@@ -119,6 +127,7 @@ module Bosh::Stemcell
           :bosh_micro_go,
           :aws_cli,
           :logrotate_config,
+          :dev_tools_config,
         ]
       end
 
@@ -176,6 +185,51 @@ module Bosh::Stemcell
           it 'returns the correct stages' do
             expect(stage_collection.build_stemcell_image_stages).to eq(aws_build_stemcell_image_stages)
             expect(stage_collection.package_stemcell_stages('raw')).to eq(aws_package_stemcell_stages)
+          end
+
+        end
+      end
+
+      context 'when using Google' do
+        let(:infrastructure) { Infrastructure.for('google') }
+
+        let(:google_build_stemcell_image_stages) {
+          [
+            :system_network,
+            :system_google_modules,
+            :system_google_packages,
+            :system_parameters,
+            :bosh_clean,
+            :bosh_harden,
+            :bosh_google_agent_settings,
+            :bosh_clean_ssh,
+            :image_create,
+            :image_install_grub,
+            :bosh_package_list
+          ]
+        }
+
+        let(:google_package_stemcell_stages) {
+          [
+            :prepare_rawdisk_image_stemcell,
+          ]
+        }
+
+        context 'when the operating system is CentOS' do
+          let(:operating_system) { OperatingSystem.for('centos') }
+
+          it 'returns the correct stages' do
+            expect(stage_collection.build_stemcell_image_stages).to eq(google_build_stemcell_image_stages)
+            expect(stage_collection.package_stemcell_stages('rawdisk')).to eq(google_package_stemcell_stages)
+          end
+        end
+
+        context 'when the operating system is Ubuntu' do
+          let(:operating_system) { OperatingSystem.for('ubuntu') }
+
+          it 'returns the correct stages' do
+            expect(stage_collection.build_stemcell_image_stages).to eq(google_build_stemcell_image_stages)
+            expect(stage_collection.package_stemcell_stages('rawdisk')).to eq(google_package_stemcell_stages)
           end
 
         end
@@ -248,7 +302,6 @@ module Bosh::Stemcell
               [
                 :system_network,
                 :system_open_vm_tools,
-                :disable_blank_passwords,
                 :system_vsphere_cdrom,
                 :system_parameters,
                 :bosh_clean,
@@ -273,7 +326,6 @@ module Bosh::Stemcell
               [
                 :system_network,
                 :system_open_vm_tools,
-                :disable_blank_passwords,
                 :system_vsphere_cdrom,
                 :system_parameters,
                 :bosh_clean,
@@ -302,7 +354,6 @@ module Bosh::Stemcell
               [
                 :system_network,
                 :system_open_vm_tools,
-                :disable_blank_passwords,
                 :system_vsphere_cdrom,
                 :system_parameters,
                 :bosh_clean,
@@ -327,7 +378,6 @@ module Bosh::Stemcell
               [
                 :system_network,
                 :system_open_vm_tools,
-                :disable_blank_passwords,
                 :system_vsphere_cdrom,
                 :system_parameters,
                 :bosh_clean,
@@ -384,6 +434,77 @@ module Bosh::Stemcell
           it 'returns the correct stages' do
             expect(stage_collection.build_stemcell_image_stages).to eq(azure_build_stemcell_image_stages)
             expect(stage_collection.package_stemcell_stages('vhd')).to eq(azure_package_stemcell_stages)
+          end
+        end
+      end
+
+      context 'when using softlayer' do
+        let(:infrastructure) { Infrastructure.for('softlayer') }
+
+        context 'when the operating system is Ubuntu' do
+          let(:operating_system) { OperatingSystem.for('ubuntu') }
+
+          it 'has the correct stages' do
+            expect(stage_collection.build_stemcell_image_stages).to eq(
+              [
+                :system_network,
+                :system_softlayer_open_iscsi,
+                :system_softlayer_multipath_tools,
+                :disable_blank_passwords,
+                :system_parameters,
+                :bosh_clean,
+                :bosh_harden,
+                :bosh_enable_password_authentication,
+                :bosh_softlayer_agent_settings,
+                :bosh_clean_ssh,
+                :image_create,
+                :image_install_grub,
+                :bosh_package_list
+              ]
+            )
+            expect(stage_collection.package_stemcell_stages('ovf')).to eq(vmware_package_stemcell_steps)
+          end
+        end
+      end
+
+      context 'when using Warden' do
+        let(:infrastructure) { Infrastructure.for('warden') }
+
+        let(:build_stemcell_image_stages) {
+          [
+            :system_parameters,
+            :base_warden,
+            :bosh_clean,
+            :bosh_harden,
+            :bosh_enable_password_authentication,
+            :bosh_clean_ssh,
+            :image_create,
+            :image_install_grub,
+            :bosh_package_list
+          ]
+        }
+
+        let(:package_stemcell_stages) {
+          [
+            :prepare_files_image_stemcell,
+          ]
+        }
+
+        context 'when the operating system is CentOS' do
+          let(:operating_system) { OperatingSystem.for('centos') }
+
+          it 'returns the correct stages' do
+            expect(stage_collection.build_stemcell_image_stages).to eq(build_stemcell_image_stages)
+            expect(stage_collection.package_stemcell_stages('files')).to eq(package_stemcell_stages)
+          end
+        end
+
+        context 'when the operating system is Ubuntu' do
+          let(:operating_system) { OperatingSystem.for('ubuntu') }
+
+          it 'returns the correct stages' do
+            expect(stage_collection.build_stemcell_image_stages).to eq(build_stemcell_image_stages)
+            expect(stage_collection.package_stemcell_stages('files')).to eq(package_stemcell_stages)
           end
         end
       end

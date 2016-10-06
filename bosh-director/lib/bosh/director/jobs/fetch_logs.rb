@@ -17,16 +17,13 @@ module Bosh::Director
 
         blobstore = options.fetch(:blobstore) { App.instance.blobstores.blobstore }
         log_bundles_cleaner = LogBundlesCleaner.new(blobstore, 60 * 60 * 24 * 10, logger) # 10 days
-        @logs_fetcher = LogsFetcher.new(event_log, @instance_manager, log_bundles_cleaner, logger)
+        @logs_fetcher = LogsFetcher.new(@instance_manager, log_bundles_cleaner, logger)
       end
 
       def perform
         instance = @instance_manager.find_instance(@instance_id)
 
-        deployment = instance.deployment
-        with_deployment_lock(deployment) do
-          @logs_fetcher.fetch(instance, @log_type, @filters)
-        end
+        @logs_fetcher.fetch(instance, @log_type, @filters)
       end
     end
   end
