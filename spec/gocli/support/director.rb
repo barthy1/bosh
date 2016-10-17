@@ -132,7 +132,7 @@ module Bosh::Spec
     end
 
     def task(id)
-      output = @runner.run("task #{id}")
+      output = @runner.run("task #{id}", failure_expected: true) # permit failures, gocli task command fails if non-success. ruby cli return success despite task failure.
       failed = /Task (\d+) error/.match(output)
       return output, !failed
     end
@@ -190,8 +190,8 @@ module Bosh::Spec
       options
     end
 
-    def vms_details(deployment_name, options = {})
-      parse_table_with_ips(@runner.run('vms --json --details', options))
+    def vms_details(options = {})
+      parse_table_with_ips(@runner.run('vms --details', options.merge(json: true)))
     end
 
     def parse_table(output)
@@ -227,7 +227,7 @@ module Bosh::Spec
           vm[:ips] = vm[:ips].split("\n")
           vm['IPs'] = vm[:ips]
 
-          vm[:disk_cids] = vm[:disk_cids].split("\n")
+          vm[:disk_cids] = vm[:disk_cids].split("\n") if vm[:disk_cids]
           vm['Disk CIDs'] = vm[:disk_cids]
         end
         vm
