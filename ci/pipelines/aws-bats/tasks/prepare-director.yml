@@ -6,10 +6,10 @@ image_resource:
 
 inputs:
   - name: bosh-src
-  - name: bosh-release
+ # - name: bosh-release
   - name: cpi-release
   - name: stemcell
-  - name: environment
+ # - name: environment
 
 outputs:
   - name: director-config
