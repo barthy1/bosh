@@ -62,17 +62,23 @@ module Bosh::Director
           @notifier.send_start_event unless dry_run?
 
           deployment_plan = nil
-
           event_log_stage = @event_log.begin_stage('Preparing deployment', 1)
+
+
           event_log_stage.advance_and_track('Preparing deployment') do
             planner_factory = DeploymentPlan::PlannerFactory.create(logger)
             deployment_plan = planner_factory.create_from_manifest(deployment_manifest_object, cloud_config_model, runtime_config_model, @options)
             deployment_plan.bind_models
           end
 
+
+
           if deployment_plan.instance_models.any?(&:ignore)
             @event_log.warn('You have ignored instances. They will not be changed.')
           end
+
+          @logger.info("yulia! task_id update_depl #{task_id}")
+          @logger.info("yulia! #{Bosh::Director::Models::Task.first(id: task_id).event_output.inspect}")
 
           next_releases, next_stemcells  = get_stemcells_and_releases
           context = event_context(next_releases, previous_releases, next_stemcells, previous_stemcells)

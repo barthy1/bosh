@@ -78,17 +78,17 @@ module Bosh::Director
       end
 
       def filter_task_by_deployment_and_teams(dataset, deployment, token_scopes, limit)
-          if deployment
-            dataset = dataset.where(deployment_name: deployment)
-          end
-          if token_scopes
-            teams = Models::Team.transform_admin_team_scope_to_teams(token_scopes)
-            dataset = dataset.where(teams: teams)
-          end
-          if limit
-            dataset = dataset.limit(limit)
-          end
-          dataset.order_by(Sequel.desc(:timestamp)).all
+        if deployment
+          dataset = dataset.where(deployment_name: deployment)
+        end
+        if token_scopes
+          teams = Models::Team.transform_admin_team_scope_to_teams(token_scopes)
+          dataset = dataset.where(teams: teams)
+        end
+        if limit
+          dataset = dataset.limit(limit)
+        end
+        dataset.order_by(Sequel.desc(:timestamp)).all
       end
 
 
@@ -113,8 +113,9 @@ module Bosh::Director
       # Example: `get /tasks/5/output?type=event` will send back the file
       # at /var/vcap/store/director/tasks/5/event
       get '/:id/output', authorization: :task_output, scope: :authorization do
-        log_type = params[:type] || 'debug'
 
+        log_type = params[:type] || 'debug'
+        @logger.info("yulia! log_type #{log_type} ")
         if log_type == "none"
           halt(204)
         end
@@ -127,11 +128,34 @@ module Bosh::Director
 
         log_file = @task_manager.log_file(task, log_type)
 
-        if File.file?(log_file)
-          send_file(log_file, :type => 'text/plain')
-        else
-          status(204)
+        if (['result', 'event'].include? log_type) && (!File.exists?(log_file))
+          result = task["#{log_type}_output".to_sym]
+          size = result.bytesize
+          ranges = Rack::Utils.byte_ranges(env, size)
+          if ranges.nil? || ranges.length > 1
+            # No ranges, or multiple ranges
+            return result
+          elsif ranges.empty?
+            # Unsatisfiable. Return error, and file size
+            response.headers['Content-Range'] = "bytes */#{size}"
+            status 416
+            body "Byte range unsatisfiable"
+            return
+          else
+            # Partial content:
+            range = ranges[0]
+            response.headers['Content-Range'] = "bytes #{range.begin}-#{range.end}/#{size}"
+            status 206
+            body result.byteslice(range)
+            return
+          end
         end
+          if File.file?(log_file)
+            send_file(log_file, :type => 'text/plain')
+          else
+            status(204)
+          end
+
       end
 
       private

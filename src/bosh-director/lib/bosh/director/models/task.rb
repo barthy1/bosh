@@ -20,5 +20,21 @@ module Bosh::Director::Models
         self.add_team(t)
       end
     end
+
+    # def event_output
+    #   return "" if self.event_output_text.nil?
+    # end
+    #
+    # def result_output
+    #   return "" if self.result_output_text.nil?
+    # end
+    #
+    # def event_output=(value)
+    #   self.event_output_text=value.nil? ? "" : value
+    # end
+    #
+    # def result_output=(value)
+    #   self.result_output_text = value.nil? ? "" : value
+    # end
   end
 end

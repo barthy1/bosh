@@ -108,7 +108,8 @@ describe 'vm state', type: :integration do
       simple_manifest['jobs'].first['networks'].first['static_ips'] = ['192.168.2.51', '192.168.2.52']
       simple_manifest['jobs'].first['azs'] = ['my-az2']
       deploy_simple_manifest(manifest_hash: simple_manifest)
-
+      event_log = bosh_runner.run('task last --event')
+      @logger.info(event_log)
       vms = director.vms
       prev_foobar_1_vm = director.find_vm(vms, 'foobar', '1')
       prev_foobar_2_vm = director.find_vm(vms, 'foobar', '2')

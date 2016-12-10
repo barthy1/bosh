@@ -343,6 +343,8 @@ module Bosh::Director
 
         package_refs = []
 
+        Config.logger.info("yulia! Config.event_log. #{Config.event_log.inspect} ")
+        Config.logger.info("yulia! task_id in update_release #{task_id} ")
         event_log_stage = Config.event_log.begin_stage("Creating new packages", package_metas.size)
 
         package_metas.each do |package_meta|

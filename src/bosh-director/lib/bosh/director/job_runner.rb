@@ -12,13 +12,14 @@ module Bosh::Director
       end
 
       @task_id = task_id
-      setup_task_logging
+
 
       task_manager = Bosh::Director::Api::TaskManager.new
 
       @job_class = job_class
-      @task_logger.info("Looking for task with task id #{@task_id}")
+      #@task_logger.info("Looking for task with task id #{@task_id}")
       @task = task_manager.find_task(@task_id)
+      setup_task_logging
       @task_logger.info("Found task #{@task.inspect}")
     end
 
@@ -44,8 +45,6 @@ module Bosh::Director
       FileUtils.mkdir_p(log_dir)
 
       debug_log = File.join(log_dir, 'debug')
-      event_log = File.join(log_dir, 'event')
-      result_log = File.join(log_dir, 'result')
 
       @task_logger = Logging::Logger.new('DirectorJobRunner')
       shared_appender = Logging.appenders.file(
@@ -56,9 +55,12 @@ module Bosh::Director
       @task_logger.add_appenders(shared_appender)
       @task_logger.level = Config.logger.level
 
-      Config.event_log = EventLog::Log.new(event_log)
-      Config.result = TaskResultFile.new(result_log)
+
+      Config.event_log = EventLog::Log.new(TaskDBWriter.new(:event_output, @task))
+      Config.result = TaskDBWriter.new(:result_output, @task)
       Config.logger = @task_logger
+      Config.logger.info("yulia! Config.event_log. #{Config.event_log.inspect} ")
+      Config.logger.info("yulia! @task_id #{@task_id} ")
 
       Config.db.logger = @task_logger
       Config.dns_db.logger = @task_logger if Config.dns_db
@@ -156,10 +158,12 @@ module Bosh::Director
     # @param [Symbol] state Task completion state
     # @param [#to_s] result
     def finish_task(state, result)
+      Config.logger.info("yulia! before done #{@task.inspect}")
       @task.state = state
       @task.result = truncate(result.to_s)
       @task.timestamp = Time.now
       @task.save
+      Config.logger.info("yulia! after done #{@task.inspect}")
     end
 
     # Logs the exception in the event log

@@ -194,9 +194,9 @@ RSpec.configure do |rspec|
 
   rspec.before(:each) do
     SpecHelper.reset(logger)
-    @event_buffer = StringIO.new
-    @event_log = Bosh::Director::EventLog::Log.new(@event_buffer)
-    Bosh::Director::Config.event_log = @event_log
+   # @event_buffer = StringIO.new
+  #  @event_log = Bosh::Director::EventLog::Log.new(@event_buffer)
+   # Bosh::Director::Config.event_log = @event_log
 
     allow(Bosh::Director::Config).to receive(:cloud).and_return(instance_double(Bosh::Cloud))
 
@@ -221,8 +221,8 @@ def gzip(string)
   result.string
 end
 
-def check_event_log
-  events = @event_buffer.string.split("\n").map do |line|
+def check_event_log(task_id)
+  events = Bosh::Director::Models::Task.first(id: task_id).event_output.split("\n").map do |line|
     JSON.parse(line)
   end
 

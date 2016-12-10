@@ -7,15 +7,16 @@ module Bosh::Director
     let(:task_dir) { File.join(tasks_dir, 'tasks', task_id.to_s) }
     before { allow(Config).to receive(:base_dir).and_return(tasks_dir) }
 
-    let(:event_log) { instance_double('Bosh::Director::EventLog::Log', log_error: nil) }
-    before { allow(EventLog::Log).to receive(:new).with("#{task_dir}/event").
-        and_return(event_log) }
+  #  let(:task_writer) {Bosh::Director::TaskDBWriter.new(:event_output, task_id)}
+ #   let(:event_log) {Bosh::Director::EventLog::Log.new(task_writer)}
 
-    let(:result_file) { instance_double('Bosh::Director::TaskResultFile') }
-    before { allow(TaskResultFile).to receive(:new).with("#{task_dir}/result").
-        and_return(result_file) }
+   # let(:task_result) { Bosh::Director::TaskDBWriter.new(:result_output, task_id) }
 
-    before { allow(Config).to receive(:cloud_options).and_return({}) }
+    before {
+      allow(Config).to receive(:cloud_options).and_return({})
+   #   allow(Config).to receive(:event_log).and_return(event_log)
+    #  allow(Config).to receive(:result).and_return(task_result)
+    }
 
     describe 'described_class.job_type' do
       it 'should complain that the method is not implemented' do
