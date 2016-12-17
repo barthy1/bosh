@@ -231,7 +231,7 @@ module Bosh::Director
               Models::Event.make('object_type' => 'deployment')
             end
 
-            it 'returns the anded results' do
+            it 'returns the ended results' do
               get '?user=admin&action=update&object_id=test&object_type=deployment'
               events = JSON.parse(last_response.body)
               expect(events.size).to eq(1)
