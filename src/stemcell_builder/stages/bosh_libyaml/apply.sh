@@ -13,10 +13,12 @@ libyaml_basename=yaml-0.1.6
 libyaml_archive=$libyaml_basename.tar.gz
 
 cp -r $dir/assets/$libyaml_archive $chroot/$bosh_dir/src
+cp -r $dir/assets/config $chroot/$bosh_dir/src
 
 run_in_bosh_chroot $chroot "
 cd src
 tar zxvf $libyaml_archive
+cp config/config.{guess,sub} $libyaml_basename/config
 cd $libyaml_basename
 ./configure --prefix=/usr
 make -j4 && make install
