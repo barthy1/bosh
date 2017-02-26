@@ -16,8 +16,8 @@
 .tags
 .vagrant
 .yardoc
+src/go/src/github.com/cloudfoundry/bosh-agent
 
-/*/vendor/
 Checkfile
 TAGS
 
@@ -27,39 +27,30 @@ aws_vpc_receipt.yml
 
 /bin/
 
-bosh_cli_plugin_aws/director.key
-bosh_cli_plugin_aws/director.pem
-bosh_cli_plugin_aws/spec/assets/private.yml
-
 create-rds-output*.yml
 create-vpc-output*.yml
 
-micro/tmp
-
-/go/bin/
-/go/gobin/
-/go/src/code.google.com/p/go.tools
-/go/src/golang.org
-/go/src/github.com/golang
+/src/go/bin/
+/src/go/gobin/
+/src/go/src/code.google.com/p/go.tools
+/src/go/src/golang.org
+/src/go/src/github.com/golang
 
 pkg/
 
-/release/.blobs
-/release/.dev_builds
-/release/.final_builds/jobs/**/*.tgz
-/release/.final_builds/packages/**/*.tgz
-/release/.idea
-/release/blobs
-/release/blobs
-/release/config/dev.yml
-/release/config/private.yml
-/release/dev-releases
-/release/dev_releases
-/release/jobs/micro_*/monit
-/release/jobs/micro_*/spec
-/release/jobs/micro_*/templates/
-/release/releases/*.tgz
-/release/src/bosh/*
+**/*/private.yml
+
+.blobs
+.dev_builds
+.final_builds/jobs/**/*.tgz
+.final_builds/packages/**/*.tgz
+.idea
+blobs
+config/dev.yml
+config/private.yml
+dev_releases
+releases/*.tgz
+releases/**/*.tgz
 
 /*/spec/reports/
 /spec/reports
@@ -80,5 +71,5 @@ spec/assets/compiled_releases/test_release/dev_releases
 spec_coverage
 spec_reports
 
-/tmp/*
+**/tmp
 coverage/

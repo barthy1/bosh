@@ -28,7 +28,11 @@ bosh$ bundle exec rake spec:unit
 
 The CLI must be backwards compatible with Ruby 1.9.3, so when making CLI changes make sure that the CLI tests pass when run with Ruby 1.9.3. All code needs to run on Ruby 2.x.x.
 
-You can also use `./quick-unit-tests.sh` to run all unit tests against a local [Concourse CI](https://concourse.ci/) instance.
+You can also use a [Concourse CI](https://concourse.ci/) instance with the rake task:
+
+```
+bosh$ CONCOURSE_TARGET=bosh CONCOURSE_TAG= bundle exec rake fly:unit
+```
 
 
 ### Integration Tests
@@ -39,8 +43,11 @@ Integration tests describe communication between BOSH components focusing on the
 bosh$ bundle exec rake spec:integration
 ```
 
-You can also use `./quick-integration-tests.sh` to run all integration tests against a local [Concourse CI](https://concourse.ci/) instance.
+You can also use a [Concourse CI](https://concourse.ci/) instance with the rake task:
 
+```
+bosh$ CONCOURSE_TARGET=bosh CONCOURSE_TAG= bundle exec rake fly:integration
+```
 
 ### Acceptance Tests (BATs)
 
@@ -59,10 +66,6 @@ BATs currently supports the following tags which are enabled by default (use `--
   - `raw_ephemeral_storage`: BOSH agent exposes all attached instance storage to deployed jobs
   - `changing_static_ip`: `configure_networks` CPI method support [deprecated]
   - `network_reconfiguration`: `configure_networks` CPI method support [deprecated]
-
-The following tags also exist but are disabled by default (use `--tag ~system_services_running:false` to include them):
-
-  - `system_services_running`: checking if auditd, rsyslogd, cron and sshd are running
 
 Here is an example of running BATs on vSphere, skipping tests that are not applicable:
 

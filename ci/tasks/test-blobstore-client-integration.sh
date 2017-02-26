@@ -12,6 +12,11 @@ check_param secret_access_key
 check_param s3_host
 check_param s3_region
 
+pushd bosh-src
+  bosh sync blobs
+  chmod +x ./blobs/s3cli/s3cli-*-amd64
+popd
+
 export S3CMD_CONFIG_FILE="${PWD}/s3cmd.s3cfg"
 cat > "${S3CMD_CONFIG_FILE}" << EOF
 [default]
@@ -40,9 +45,9 @@ export AWS_ACCESS_KEY_ID=${access_key_id}
 export AWS_SECRET_ACCESS_KEY=${secret_access_key}
 export S3_HOST=${s3_host}
 
-pushd bosh-src
+pushd bosh-src/src
   bundle install
-  pushd blobstore_client
+  pushd bosh-director
 
     # Create bucket in US region
     bucket_name="bosh-blobstore-bucket-$RANDOM"

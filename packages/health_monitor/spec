@@ -1,0 +1,7 @@
+---
+name: health_monitor
+dependencies:
+- ruby
+files:
+- bosh-monitor/**/*
+- vendor/cache/*.gem

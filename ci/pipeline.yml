@@ -2,112 +2,111 @@
 groups:
   - name: bosh
     jobs:
-      - start-job
-      - unit-1.9
-      - unit-1.9-postgres
       - unit-2.3
       - unit-2.3-mysql
       - unit-2.3-postgres
       - blobstore-client-integration
-      - integration-1.9-postgres
-      - integration-2.3-mysql
+      - integration-postgres-gocli-sha2
+      - integration-mysql-gocli-sha1
       - integration-2.3-postgres
       - load-tests-postgres
       - load-tests-mysql
       - legacy-load-tests-postgres
       - legacy-load-tests-mysql
       - fuzz-tests
-      - publish-coverage
-      - promote-candidate
-
-  - name: 1.9
-    jobs:
-      - start-job
-      - unit-1.9
-      - unit-1.9-postgres
-      - integration-1.9-postgres
-      - publish-coverage
-      - promote-candidate
-
-  - name: 2.3
-    jobs:
-      - start-job
-      - unit-2.3
-      - unit-2.3-mysql
-      - unit-2.3-postgres
-      - integration-2.3-mysql
-      - integration-2.3-postgres
-      - publish-coverage
-      - promote-candidate
+      - candidate-release
+      - finalize-bosh-release
+      - bats-centos
+      - bats-ubuntu
+      - upgrade-tests
 
   - name: mysql
     jobs:
-      - start-job
       - unit-2.3-mysql
-      - integration-2.3-mysql
-      - publish-coverage
-      - promote-candidate
+      - integration-mysql-gocli-sha1
 
   - name: postgres
     jobs:
-      - start-job
-      - unit-1.9-postgres
       - unit-2.3-postgres
-      - integration-1.9-postgres
       - integration-2.3-postgres
-      - publish-coverage
-      - promote-candidate
+
+  - name: finalize
+    jobs:
+      - finalize-bosh-release
+
+shared:
+  - &prepare-director
+    task: prepare-director
+    tags: [vsphere-v5.1]
+    file: pipelines/vsphere/tasks/prepare-director.yml
+    params: &prepare-director-params
+      BOSH_CLIENT:                          {{stemcell-test-director-username}}
+      BOSH_CLIENT_SECRET:                   {{stemcell-test-director-password}}
+      BOSH_VSPHERE_VCENTER:                 {{vcenter-ip}}
+      BOSH_VSPHERE_VCENTER_USER:            {{vcenter-user}}
+      BOSH_VSPHERE_VCENTER_PASSWORD:        {{vcenter-password}}
+      BOSH_VSPHERE_VERSION:                 {{vsphere-version}}
+      BOSH_VSPHERE_VCENTER_DC:              {{vcenter-dc}}
+      BOSH_VSPHERE_VCENTER_CLUSTER:         {{vcenter-cluster}}
+      BOSH_VSPHERE_VCENTER_DATASTORE:       {{vcenter-datastore}}
+      BOSH_VSPHERE_VCENTER_VLAN:            {{vcenter-vlan}}
+      BOSH_VSPHERE_VCENTER_VM_FOLDER:       {{vcenter-vm-folder}}
+      BOSH_VSPHERE_VCENTER_TEMPLATE_FOLDER: {{vcenter-template-folder}}
+      BOSH_VSPHERE_VCENTER_DISK_PATH:       {{vcenter-disk-path}}
+      SSLIP_IO_KEY:                         {{sslip_io_key}}
+
+  - &deploy-director
+    task: deploy-director
+    tags: [vsphere-v5.1]
+    file: pipelines/shared/tasks/deploy-director.yml
+
+  - &prepare-bats
+    task: prepare-bats
+    tags: [vsphere-v5.1]
+    file: pipelines/vsphere/tasks/prepare-bats.yml
+    params: &prepare-bats-params
+      BAT_VCAP_PASSWORD:      {{bat-vcap-password}}
+      BOSH_CLIENT:            {{stemcell-test-director-username}}
+      BOSH_CLIENT_SECRET:     {{stemcell-test-director-password}}
+
+  - &run-bats
+    task: run-bats
+    tags: [vsphere-v5.1]
+    file: pipelines/shared/tasks/run-bats.yml
+
+  - &teardown
+    task: teardown
+    tags: [vsphere-v5.1]
+    file: pipelines/shared/tasks/teardown.yml
+    params:
+      DEPLOYMENT_NAME: certification
 
 jobs:
-  - name: start-job
-    public: true
-    serial: true
-    plan:
-      - { get: interval-trigger, trigger: true }
-      - { get: bosh-src }
-
-  - name: unit-1.9
-    public: true
-    serial: true
-    plan:
-      - { get: bosh-src, trigger: true, passed: [start-job] }
-
-      - task: test
-        file: bosh-src/ci/tasks/test-unit.yml
-        params:
-          RUBY_VERSION: 1.9.3
-          DB: sqlite
-
-  - name: unit-1.9-postgres
-    public: true
-    serial: true
-    plan:
-      - { get: bosh-src, trigger: true, passed: [start-job] }
-
-      - task: test
-        file: bosh-src/ci/tasks/test-unit.yml
-        privileged: true
-        params:
-          RUBY_VERSION: 1.9.3
-          DB: postgresql
-
   - name: unit-2.3
     public: true
     serial: true
+    build_logs_to_retain: 250
     plan:
-      - { get: bosh-src, trigger: true, passed: [start-job] }
+      - { get: bosh-src, trigger: true }
 
       - task: test
         file: bosh-src/ci/tasks/test-unit.yml
         params:
           RUBY_VERSION: 2.3.1
           DB: sqlite
+        on_failure:
+          put: slack-alert
+          params:
+            channel: {{slack_channel_name}}
+            icon_url: http://cl.ly/image/3e1h0H3H2s0P/concourse-logo.png
+            text: {{slack_failure_message}}
 
   - name: unit-2.3-mysql
     public: true
     serial: true
+    build_logs_to_retain: 250
     plan:
-      - { get: bosh-src, trigger: true, passed: [start-job] }
+      - { get: bosh-src, trigger: true }
 
       - task: test
         file: bosh-src/ci/tasks/test-unit.yml
@@ -115,12 +114,92 @@ jobs:
         params:
           RUBY_VERSION: 2.3.1
           DB: mysql
+        on_failure:
+          put: slack-alert
+          params:
+            channel: {{slack_channel_name}}
+            icon_url: http://cl.ly/image/3e1h0H3H2s0P/concourse-logo.png
+            text: {{slack_failure_message}}
+
+  - name: unit-2.3-mysql-consolidated
+    public: true
+    serial: true
+    build_logs_to_retain: 250
+    plan:
+      - { get: bosh-src, trigger: true }
+      - aggregate:
+        - task: test-mysql-5.5
+          privileged: true
+          config:
+            platform: linux
+            image_resource:
+              type: docker-image
+              source:
+                repository: bosh/main-mysql-5.5
+            inputs:
+              - name: bosh-src
+            run:
+              path: bosh-src/ci/tasks/test-unit.sh
+            params:
+              RUBY_VERSION: 2.3.1
+              DB: mysql
+            on_failure:
+              put: slack-alert
+              params:
+                channel: {{slack_channel_name}}
+                icon_url: http://cl.ly/image/3e1h0H3H2s0P/concourse-logo.png
+                text: {{slack_failure_message}}
+
+        - task: test-mysql-5.6
+          privileged: true
+          config:
+            platform: linux
+            image_resource:
+              type: docker-image
+              source:
+                repository: bosh/main-mysql-5.6
+            inputs:
+              - name: bosh-src
+            run:
+              path: bosh-src/ci/tasks/test-unit.sh
+            params:
+              RUBY_VERSION: 2.3.1
+              DB: mysql
+            on_failure:
+              put: slack-alert
+              params:
+                channel: {{slack_channel_name}}
+                icon_url: http://cl.ly/image/3e1h0H3H2s0P/concourse-logo.png
+                text: {{slack_failure_message}}
+
+        - task: test-mysql-5.7
+          privileged: true
+          config:
+            platform: linux
+            image_resource:
+              type: docker-image
+              source:
+                repository: bosh/main-mysql-5.7
+            inputs:
+              - name: bosh-src
+            run:
+              path: bosh-src/ci/tasks/test-unit.sh
+            params:
+              RUBY_VERSION: 2.3.1
+              DB: mysql
+            on_failure:
+              put: slack-alert
+              params:
+                channel: {{slack_channel_name}}
+                icon_url: http://cl.ly/image/3e1h0H3H2s0P/concourse-logo.png
+                text: {{slack_failure_message}}
 
   - name: unit-2.3-postgres
     public: true
     serial: true
+    build_logs_to_retain: 250
     plan:
-      - { get: bosh-src, trigger: true, passed: [start-job] }
+      - { get: bosh-src, trigger: true }
 
       - task: test
         file: bosh-src/ci/tasks/test-unit.yml
@@ -128,12 +207,119 @@ jobs:
         params:
           RUBY_VERSION: 2.3.1
           DB: postgresql
+          DB_VERSION: 9.4
+        on_failure:
+          put: slack-alert
+          params:
+            channel: {{slack_channel_name}}
+            icon_url: http://cl.ly/image/3e1h0H3H2s0P/concourse-logo.png
+            text: {{slack_failure_message}}
+
+  - name: unit-2.3-postgres-consolidated
+    public: true
+    serial: true
+    build_logs_to_retain: 250
+    plan:
+      - { get: bosh-src, trigger: true }
+      - aggregate:
+        - task: test-postgres-9.3
+          privileged: true
+          config:
+            platform: linux
+            image_resource:
+              type: docker-image
+              source:
+                repository: bosh/main-postgres-9.3
+            inputs:
+              - name: bosh-src
+            run:
+              path: bosh-src/ci/tasks/test-unit.sh
+            params:
+              RUBY_VERSION: 2.3.1
+              DB: postgresql
+              DB_VERSION: 9.3
+            on_failure:
+              put: slack-alert
+              params:
+                channel: {{slack_channel_name}}
+                icon_url: http://cl.ly/image/3e1h0H3H2s0P/concourse-logo.png
+                text: {{slack_failure_message}}
+
+        - task: test-postgres-9.4
+          privileged: true
+          config:
+            platform: linux
+            image_resource:
+              type: docker-image
+              source:
+                repository: bosh/main-postgres-9.4
+            inputs:
+              - name: bosh-src
+            run:
+              path: bosh-src/ci/tasks/test-unit.sh
+            params:
+              RUBY_VERSION: 2.3.1
+              DB: postgresql
+              DB_VERSION: 9.4
+            on_failure:
+              put: slack-alert
+              params:
+                channel: {{slack_channel_name}}
+                icon_url: http://cl.ly/image/3e1h0H3H2s0P/concourse-logo.png
+                text: {{slack_failure_message}}
+
+        - task: test-postgres-9.5
+          privileged: true
+          config:
+            platform: linux
+            image_resource:
+              type: docker-image
+              source:
+                repository: bosh/main-postgres-9.5
+            inputs:
+              - name: bosh-src
+            run:
+              path: bosh-src/ci/tasks/test-unit.sh
+            params:
+              RUBY_VERSION: 2.3.1
+              DB: postgresql
+              DB_VERSION: 9.5
+            on_failure:
+              put: slack-alert
+              params:
+                channel: {{slack_channel_name}}
+                icon_url: http://cl.ly/image/3e1h0H3H2s0P/concourse-logo.png
+                text: {{slack_failure_message}}
+
+        - task: test-postgres-9.6
+          privileged: true
+          config:
+            platform: linux
+            image_resource:
+              type: docker-image
+              source:
+                repository: bosh/main-postgres-9.6
+            inputs:
+              - name: bosh-src
+            run:
+              path: bosh-src/ci/tasks/test-unit.sh
+            params:
+              RUBY_VERSION: 2.3.1
+              DB: postgresql
+              DB_VERSION: 9.6
+            on_failure:
+              put: slack-alert
+              params:
+                channel: {{slack_channel_name}}
+                icon_url: http://cl.ly/image/3e1h0H3H2s0P/concourse-logo.png
+                text: {{slack_failure_message}}
 
   - name: blobstore-client-integration
     public: true
     serial: true
+    build_logs_to_retain: 250
     plan:
-      - { get: bosh-src, trigger: true, passed: [start-job] }
+      - { get: bosh-src, trigger: true }
       - task: test
         file: bosh-src/ci/tasks/test-blobstore-client-integration.yml
         params:
@@ -143,67 +329,95 @@ jobs:
           s3_host: {{blobstore_client_aws_s3_host}}
           run_aws_tests: "Not null"
 
-  - name: integration-1.9-postgres
+  - name: integration-postgres-gocli-sha2
     public: true
     serial: true
+    build_logs_to_retain: 250
     plan:
-      - { get: bosh-src, trigger: true, passed: [start-job] }
+      - aggregate:
+        - get: bosh-src
+          trigger: true
+        - get: bosh-cli
+          trigger: true
+        - get: bosh-agent
+          trigger: true
       - aggregate:
         - task: test-group-1
           privileged: true
-          file: bosh-src/ci/tasks/test-integration.yml
+          file: bosh-src/ci/tasks/test-integration-gocli.yml
           tags: ["bosh-integration-1"]
           params:
             DB:           postgresql
-            RUBY_VERSION: 1.9.3
-            NUM_GROUPS: 24
-            GROUP:      1,4,7,10,13,16,19,22
+            RUBY_VERSION: 2.3.1
+            NUM_GROUPS:   24
+            GROUP:        1,4,7,10,13,16,19,22
+            SHA2_MODE:    true
+
         - task: test-group-2
           privileged: true
-          file: bosh-src/ci/tasks/test-integration.yml
+          file: bosh-src/ci/tasks/test-integration-gocli.yml
           tags: ["bosh-integration-2"]
           params:
             DB:           postgresql
-            RUBY_VERSION: 1.9.3
-            NUM_GROUPS: 24
-            GROUP:      2,5,8,11,14,17,20,23
+            RUBY_VERSION: 2.3.1
+            NUM_GROUPS:   24
+            GROUP:        2,5,8,11,14,17,20,23
+            SHA2_MODE:    true
+
         - task: test-group-3
           privileged: true
-          file: bosh-src/ci/tasks/test-integration.yml
+          file: bosh-src/ci/tasks/test-integration-gocli.yml
           tags: ["bosh-integration-3"]
           params:
             DB:           postgresql
-            RUBY_VERSION: 1.9.3
-            NUM_GROUPS: 24
-            GROUP:      3,6,9,12,15,18,21,24
+            RUBY_VERSION: 2.3.1
+            NUM_GROUPS:   24
+            GROUP:        3,6,9,12,15,18,21,24
+            SHA2_MODE:    true
 
-  - name: integration-2.3-mysql
+        on_failure:
+          put: slack-alert
+          params:
+            channel: {{slack_channel_name}}
+            icon_url: http://cl.ly/image/3e1h0H3H2s0P/concourse-logo.png
+            text: {{slack_failure_message}}
+
+  - name: integration-mysql-gocli-sha1
     public: true
     serial: true
+    build_logs_to_retain: 250
     plan:
-      - { get: bosh-src, trigger: true, passed: [start-job] }
+      - aggregate:
+        - get: bosh-src
+          trigger: true
+        - get: bosh-cli
+          trigger: true
+        - get: bosh-agent
+          trigger: true
       - aggregate:
         - task: test-group-1
           privileged: true
-          file: bosh-src/ci/tasks/test-integration.yml
+          file: bosh-src/ci/tasks/test-integration-gocli.yml
           tags: ["bosh-integration-4"]
           params:
             DB:           mysql
             RUBY_VERSION: 2.3.1
             NUM_GROUPS: 24
             GROUP:      1,4,7,10,13,16,19,22
+
         - task: test-group-2
           privileged: true
-          file: bosh-src/ci/tasks/test-integration.yml
+          file: bosh-src/ci/tasks/test-integration-gocli.yml
           tags: ["bosh-integration-5"]
           params:
             DB:           mysql
             RUBY_VERSION: 2.3.1
             NUM_GROUPS: 24
             GROUP:      2,5,8,11,14,17,20,23
+
         - task: test-group-3
           privileged: true
-          file: bosh-src/ci/tasks/test-integration.yml
+          file: bosh-src/ci/tasks/test-integration-gocli.yml
           tags: ["bosh-integration-6"]
           params:
             DB:           mysql
@@ -211,11 +425,20 @@ jobs:
             NUM_GROUPS: 24
             GROUP:      3,6,9,12,15,18,21,24
 
+        on_failure:
+          put: slack-alert
+          params:
+            channel: {{slack_channel_name}}
+            icon_url: http://cl.ly/image/3e1h0H3H2s0P/concourse-logo.png
+            text: {{slack_failure_message}}
+
   - name: integration-2.3-postgres
     public: true
     serial: true
+    build_logs_to_retain: 250
     plan:
-      - { get: bosh-src, trigger: true, passed: [start-job] }
+      - { get: bosh-src, trigger: true }
+      - { get: bosh-agent, trigger: true }
       - aggregate:
         - task: test-group-1
           privileged: true
@@ -226,6 +449,7 @@ jobs:
             RUBY_VERSION: 2.3.1
             NUM_GROUPS: 24
             GROUP:      1,4,7,10,13,16,19,22
+
         - task: test-group-2
           privileged: true
           file: bosh-src/ci/tasks/test-integration.yml
@@ -235,6 +459,7 @@ jobs:
             RUBY_VERSION: 2.3.1
             NUM_GROUPS: 24
             GROUP:      2,5,8,11,14,17,20,23
+
         - task: test-group-3
           privileged: true
           file: bosh-src/ci/tasks/test-integration.yml
@@ -245,18 +470,58 @@ jobs:
             NUM_GROUPS: 24
             GROUP:      3,6,9,12,15,18,21,24
 
+        on_failure:
+          put: slack-alert
+          params:
+            channel: {{slack_channel_name}}
+            icon_url: http://cl.ly/image/3e1h0H3H2s0P/concourse-logo.png
+            text: {{slack_failure_message}}
+
+  - name: upgrade-tests
+    public: true
+    serial: true
+    build_logs_to_retain: 250
+    plan:
+      - aggregate:
+        - get: bosh-src
+          trigger: true
+        - get: bosh-cli
+          trigger: true
+        - get: bosh-agent
+          trigger: true
+      - aggregate:
+        - task: upgrade-with-postgres
+          privileged: true
+          file: bosh-src/ci/tasks/test-upgrade.yml
+          tags: ["bosh-integration"]
+          params:
+            DB: postgresql
+            RUBY_VERSION: 2.3.1
+
+        - task: upgrade-with-mysql
+          privileged: true
+          file: bosh-src/ci/tasks/test-upgrade.yml
+          tags: ["bosh-integration"]
+          params:
+            DB: mysql
+            RUBY_VERSION: 2.3.1            
+
   - name: load-tests-postgres
     public: true
     serial: true
+    build_logs_to_retain: 250
     plan:
-    - { get: bosh-src, trigger: true, passed: [start-job] }
+    - { get: bosh-src, trigger: true }
+    - { get: bosh-agent }
     - { get: bosh-load-tests-workspace }
+    - { get: bosh-cli }
 
     - task: test
       privileged: true
       file: bosh-load-tests-workspace/ci/tasks/test.yml
       tags: ["bosh-integration"]
       params:
+        BOSH_SRC_PATH: bosh-src/src
         DB: postgresql
         RUBY_VERSION: 2.3.1
         LEGACY: false
@@ -270,15 +535,19 @@ jobs:
   - name: legacy-load-tests-postgres
     public: true
     serial: true
+    build_logs_to_retain: 250
     plan:
-    - { get: bosh-src, trigger: true, passed: [start-job] }
+    - { get: bosh-src, trigger: true }
+    - { get: bosh-agent }
     - { get: bosh-load-tests-workspace }
+    - { get: bosh-cli }
 
     - task: test
       privileged: true
       file: bosh-load-tests-workspace/ci/tasks/test.yml
       tags: ["bosh-integration"]
       params:
+        BOSH_SRC_PATH: bosh-src/src
         DB: postgresql
         RUBY_VERSION: 2.3.1
         LEGACY: true
@@ -292,15 +561,19 @@ jobs:
   - name: load-tests-mysql
     public: true
     serial: true
+    build_logs_to_retain: 250
     plan:
-    - { get: bosh-src, trigger: true, passed: [start-job] }
+    - { get: bosh-src, trigger: true }
+    - { get: bosh-agent }
     - { get: bosh-load-tests-workspace }
+    - { get: bosh-cli }
 
     - task: test
       privileged: true
       file: bosh-load-tests-workspace/ci/tasks/test.yml
       tags: ["bosh-integration"]
       params:
+        BOSH_SRC_PATH: bosh-src/src
         DB: mysql
         RUBY_VERSION: 2.3.1
         LEGACY: false
@@ -314,16 +587,20 @@ jobs:
   - name: legacy-load-tests-mysql
     public: true
     serial: true
+    build_logs_to_retain: 250
     plan:
     - { get: fuzz-interval-trigger, trigger: true }
-    - { get: bosh-src, trigger: true, passed: [start-job] }
+    - { get: bosh-src, trigger: true }
+    - { get: bosh-agent }
     - { get: bosh-load-tests-workspace }
+    - { get: bosh-cli }
 
     - task: test
       privileged: true
       file: bosh-load-tests-workspace/ci/tasks/test.yml
       tags: ["bosh-integration"]
       params:
+        BOSH_SRC_PATH: bosh-src/src
         DB: mysql
         RUBY_VERSION: 2.3.1
         LEGACY: true
@@ -337,16 +614,20 @@ jobs:
   - name: fuzz-tests
     public: true
     serial: true
+    build_logs_to_retain: 2500
     plan:
     - { get: fuzz-interval-trigger, trigger: true }
-    - { get: bosh-src, trigger: true, passed: [start-job] }
+    - { get: bosh-src, trigger: true }
+    - { get: bosh-agent }
     - { get: bosh-fuzz-tests }
+    - { get: bosh-cli }
 
     - task: test
       privileged: true
       file: bosh-fuzz-tests/ci/tasks/test.yml
       tags: ["bosh-integration"]
       params:
+        BOSH_SRC_PATH: bosh-src/src
         RUBY_VERSION: 2.3.1
       on_failure:
         put: slack-alert
@@ -355,53 +636,173 @@ jobs:
           icon_url: http://cl.ly/image/3e1h0H3H2s0P/concourse-logo.png
           text: {{slack_failure_message}}
 
-  - name: publish-coverage
-    public: true
-    serial: true
+  - name: candidate-release
     plan:
-      - trigger: true
-        passed:
-        - unit-1.9
-        - unit-2.3
-        - integration-1.9-postgres
-        - integration-2.3-mysql
-        - integration-2.3-postgres
-        - blobstore-client-integration
-        get: bosh-src
-      - task: publish
-        file: bosh-src/ci/tasks/publish-coverage.yml
-        params:
-          CODECLIMATE_REPO_TOKEN: {{codeclimate_token}}
+    - get: bosh-src
+      trigger: true
+      passed:
+      - unit-2.3
+      - unit-2.3-mysql
+      - unit-2.3-postgres
+      - integration-mysql-gocli-sha1
+      - integration-2.3-postgres
+      - integration-postgres-gocli-sha2
+      - blobstore-client-integration
+      - fuzz-tests
+      - load-tests-postgres
+      - load-tests-mysql
+      - legacy-load-tests-postgres
+      - legacy-load-tests-mysql
+      - upgrade-tests
+    - get: bosh-cli
+    - get: candidate-version
+      params:
+        bump: major
+    - task: make
+      file: bosh-src/ci/tasks/make-candidate.yml
+    - put: bosh-candidate-release-tarballs
+      params:
+        file: "release/bosh-dev-release.tgz"
 
-  - name: promote-candidate
-    public: true
+  - name: bats-centos
     serial: true
     plan:
-      - trigger: true
-        passed:
-        - unit-1.9
-        - unit-1.9-postgres
-        - unit-2.3
-        - unit-2.3-mysql
-        - unit-2.3-postgres
-        - integration-1.9-postgres
-        - integration-2.3-mysql
-        - integration-2.3-postgres
-        - blobstore-client-integration
-        get: bosh-src
-      - {put: bosh-candidate, params: {repository: bosh-src}}
+    - do:
+      - aggregate:
+        - get: bosh-release
+          resource: bosh-candidate-release-tarballs
+          trigger: true
+          passed:
+          - candidate-release
+        - get: cpi-release
+        - get: stemcell
+          resource: vsphere-esxi-centos-7
+        - get: pipelines
+        - get: bosh-cli
+        - get: bats
+        - get: bosh-src
+          passed:
+          - candidate-release
+
+      - put: environment
+        params:
+          acquire: true
+
+      - <<: *prepare-director
+
+      - do:
+        - <<: *deploy-director
+
+        - <<: *prepare-bats
+          params:
+            <<: *prepare-bats-params
+            STEMCELL_NAME: bosh-vsphere-esxi-centos-7-go_agent
+
+        - <<: *run-bats
+        ensure:
+          do:
+            - <<: *teardown
+      ensure:
+        do:
+        - {put: environment, params: {release: environment}}
+
+  - name: bats-ubuntu
+    serial: true
+    plan:
+    - do:
+      - aggregate:
+        - get: bosh-release
+          resource: bosh-candidate-release-tarballs
+          trigger: true
+          passed:
+            - candidate-release
+        - get: cpi-release
+        - get: stemcell
+          resource: vsphere-esxi-ubuntu-trusty
+        - get: pipelines
+        - get: bosh-cli
+        - get: bats
+        - get: bosh-src
+          passed:
+            - candidate-release
+
+      - put: environment
+        params:
+          acquire: true
+
+      - <<: *prepare-director
+
+      - do:
+        - <<: *deploy-director
+
+        - <<: *prepare-bats
+          params:
+            <<: *prepare-bats-params
+            STEMCELL_NAME: bosh-vsphere-esxi-ubuntu-trusty-go_agent
+
+        - <<: *run-bats
+        ensure:
+          do:
+          - <<: *teardown
+      ensure:
+        do:
+        - {put: environment, params: {release: environment}}
+
+  - name: finalize-bosh-release
+    serial: true
+    plan:
+      - aggregate:
+        - get: bosh-src-master
+          resource: bosh-src
+          passed:
+            - bats-centos
+            - bats-ubuntu
+        - get: bosh-dev-release
+          resource: bosh-candidate-release-tarballs
+          passed:
+            - bats-centos
+            - bats-ubuntu
+        - get: bosh-cli
+        - get: candidate-version
+          params:
+            bump: major
+      - task: promote-release
+        file: bosh-src-master/ci/tasks/finalize-bosh-release.yml
+        params:
+          BLOBSTORE_ACCESS_KEY_ID: {{bosh_release_access_key_id}}
+          BLOBSTORE_SECRET_ACCESS_KEY: {{bosh_release_secret_access_key}}
+      - put: candidate-version
+        params:
+          file: bumped-candidate-version/number
+      - put: bosh-master
+        params:
+          repository: bosh-src-with-final
+          tag: /tmp/build/put/bosh-src-with-final-tag/tag-name
+          annotate: /tmp/build/put/bosh-src-with-final-tag/annotate-msg
 
 resources:
-  - name: interval-trigger
-    type: time
-    source:
-      interval: 45m # average build time for the integration tests
-
   - name: bosh-src
     type: git
     source:
-      uri: https://github.com/cloudfoundry/bosh.git
-      branch: {{branch}}
+      uri: {{bosh_src_url}}
+      branch: master
+      private_key: {{github_deployment_key}}
+
+  - name: candidate-version
+    type: semver
+    source:
+      bucket: {{candidate_release_bucket}}
+      key: version
+      access_key_id: {{candidate_release_access_key_id}}
+      secret_access_key: {{candidate_release_secret_access_key}}
+
+  - name: bosh-candidate-release-tarballs
+    type: s3
+    source:
+      bucket: {{candidate_release_bucket}}
+      access_key_id: {{candidate_release_access_key_id}}
+      secret_access_key: {{candidate_release_secret_access_key}}
+      versioned_file: "bosh-dev-release.tgz"
 
   - name: bosh-fuzz-tests
     type: git
@@ -415,11 +816,11 @@ resources:
       uri: https://github.com/cloudfoundry-incubator/bosh-load-tests-workspace
       branch: master
 
-  - name: bosh-candidate
+  - name: bosh-master
     type: git
     source:
-      uri: git@github.com:cloudfoundry/bosh.git
-      branch: candidate
+      uri: {{bosh_src_url}}
+      branch: master
       private_key: {{github_deployment_key}}
 
   - name: fuzz-interval-trigger
@@ -431,3 +832,56 @@ resources:
     type: slack-notification
     source:
       url: {{slack_hook_url}}
+
+  - name: bosh-cli
+    type: s3
+    source:
+      regexp: alpha-bosh-cli-(.*)-linux-amd64
+      bucket: {{bosh_cli_aws_s3_alpha_release_bucket}}
+      region_name: {{bosh_cli_aws_s3_release_bucket_region}}
+
+  #
+  # BATS
+  #
+
+  - name: pipelines
+    type: git
+    source:
+      uri: https://github.com/cloudfoundry-incubator/bosh-cpi-certification
+      branch: master
+
+  - name: bats
+    type: git
+    source:
+      uri: https://github.com/cloudfoundry/bosh-acceptance-tests.git
+      branch: master
+
+  - name: environment
+    type: pool
+    source:
+      pool: vsphere
+      uri: git@github.com:pivotal-cf-experimental/bats-concourse-pool.git
+      branch: master
+      private_key: {{github_deployment_key__bosh-cpi-environments}}
+
+  - name: vsphere-esxi-ubuntu-trusty
+    type: bosh-io-stemcell
+    source:
+      name: bosh-vsphere-esxi-ubuntu-trusty-go_agent
+
+  - name: vsphere-esxi-centos-7
+    type: bosh-io-stemcell
+    source:
+      name: bosh-vsphere-esxi-centos-7-go_agent
+
+  - name: cpi-release
+    type: bosh-io-release
+    source:
+      repository: cloudfoundry-incubator/bosh-vsphere-cpi-release
+
+  - name: bosh-agent
+    type: git
+    source:
+      uri: https://github.com/cloudfoundry/bosh-agent
+      branch: master
+

@@ -1,0 +1,6 @@
+---
+final_name: bosh-release
+blobstore:
+  provider: local
+  options:
+    blobstore_path: changed_in_integration_example_group

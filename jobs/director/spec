@@ -1,0 +1,410 @@
+---
+name: director
+
+templates:
+  pre-start.erb: bin/pre-start
+  director_ctl.erb: bin/director_ctl
+  director.yml.erb.erb: config/director.yml.erb
+  worker_ctl.erb: bin/worker_ctl
+  ps_utils.sh: bin/ps_utils.sh
+  drain: bin/drain
+  sudoers: config/sudoers
+  stemcell-copy.sh: bin/stemcell-copy
+  restore-db: bin/restore-db
+  task_logrotate.sh: bin/task_logrotate
+  task_logrotate.cron: config/task_logrotate.cron
+  director.pem.erb: config/ssl/director.pem
+  director.key.erb: config/ssl/director.key
+  nginx.conf.erb: config/nginx.conf
+  nginx_ctl: bin/nginx_ctl
+  mime.types: config/mime.types
+  scheduler_ctl.erb: bin/scheduler_ctl
+  config_server_ca.cert.erb: config/config_server_ca.cert
+  uaa_server_ca.cert.erb: config/uaa_server_ca.cert
+  sync_dns_ctl.erb: bin/sync_dns_ctl
+
+packages:
+- director
+- nginx
+- libpq
+- postgres
+- mysql
+- ruby
+- s3cli
+- davcli
+- verify_multidigest
+
+properties:
+  env.http_proxy:
+    description: HTTP proxy that the director, scheduler and workers should use
+  env.https_proxy:
+    description: HTTPS proxy that the director, scheduler and workers should use
+  env.no_proxy:
+    description: List of comma-separated hosts that should skip connecting to the proxy in the director, scheduler and workers
+  director.name:
+    description: Name of the director
+  director.port:
+    description: Port that the director nginx listens on
+    default: 25555
+  director.backend_port:
+    description: Port that the director listens on
+    default: 25556
+  director.nginx.workers:
+    description: Number of nginx workers for director
+    default: 2
+  director.workers:
+    description: Number of director workers
+    default: 3
+  director.enable_dedicated_status_worker:
+    description: "Separate worker for 'bosh vms' and 'bosh ssh'"
+    default: false
+  director.nginx.ssl_prefer_server_ciphers:
+    description: "Prefer server's cipher priority instead of client's (true for On, false for Off)"
+    default: true
+  director.nginx.ssl_protocols:
+    description: "SSL/TLS protocols to allow"
+    default: TLSv1.2
+  director.nginx.ssl_ciphers:
+    description: "List of SSL ciphers to allow (format: https://www.openssl.org/docs/manmaster/man1/ciphers.html - CIPHER LIST FORMAT section)"
+    default: "DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!3DES:!MD5:!PSK"
+  director.timeout:
+    description: Timeout for connection from bosh CLI to nginx
+    default: 7200
+  director.proxy_timeout:
+    description: Timeout for proxy connection from nginx to director
+    default: 900
+  director.max_upload_size:
+    description: Max allowed file size for upload
+    default: 10000m
+  director.ssl.cert:
+    description: SSL Certificate for director (PEM encoded)
+  director.ssl.key:
+    description: SSL private key for director (PEM encoded)
+  director.encryption:
+    description: Enable/Disable agent-director encryption (true|false)
+    default: false
+  director.max_tasks:
+    description: Max number of tasks per each type to keep in disk
+    default: 100
+  director.max_threads:
+    description: Max number of director concurrent threads
+    default: 32
+  director.enable_snapshots:
+    description: Enable/Disable snapshots for persistent disks (true|false)
+    default: false
+  director.snapshot_schedule:
+    description: RufusScheduler cron formatted schedule for snapshots
+    default: '0 0 7 * * * UTC'
+  director.self_snapshot_schedule:
+    description: RufusScheduler cron formatted schedule for self snapshots
+    default: '0 0 6 * * * UTC'
+  director.backup_schedule:
+    description: RufusScheduler cron formatted schedule for backups
+  director.auto_fix_stateful_nodes:
+    description: Enable/Disable auto resolution for stateful nodes for scan_and_fix (true|false)
+    default: true
+  director.max_vm_create_tries:
+    description: Max retries when creating VMs
+    default: 5
+  director.debug.keep_unreachable_vms:
+    description: When a bosh deploy fails, the failed VM will be kept instead of destroyed
+    default: false
+  director.enable_post_deploy:
+    description: When true, all templates will run their post_deploy script once deployment is complete
+    default: false
+  director.enable_nats_delivered_templates:
+    description: When true, rendered templates will be sent over NATs
+    default: false
+  director.generate_vm_passwords:
+    description: When true, a random unique password will be used for each vm if user has not specified a password
+    default: false
+  director.remove_dev_tools:
+    description: When true, remove dev tool packages from non-compilation VMs
+    default: false
+  director.log_access_events_to_syslog:
+    description: Access to api is logged to the syslog
+    default: false
+  director.flush_arp:
+    description: Clear up arp entries when machines are recreated
+    default: false
+  director.enable_virtual_delete_vms:
+    description: When true, bosh will not delete vm from cloud when instance update, just destroy vm record in db
+    default: false
+  director.local_dns.enabled:
+    description: Enables local DNS, i.e., sending sync_dns messages with all names/IPs to all agents managed by this director
+    default: false
+  director.local_dns.include_index:
+    description: If local DNS is enabled, then include_index will cause director to propagate dns records with instance index number as well as dns records with instance ID
+    default: false
+
+  #Orphaned disk and orphaned snapshot automated cleanup
+  director.disks.max_orphaned_age_in_days:
+    description: Days to keep orphaned disks and orhaned snapshots before cleanup
+    default: 5
+  director.disks.cleanup_schedule:
+    description: RufusScheduler cron formatted schedule for cleanup of orphaned disks and orphaned snapshots
+    default: '0 0,30 * * * * UTC' #every 30min
+
+  # Config Server
+  director.config_server.enabled:
+    description: 'When true, replace substitution values in manifest with values from Config Server'
+    default: false
+  director.config_server.url:
+    description: 'URL for the Config Server'
+  director.config_server.ca_cert:
+    description: 'CA cert to trust when communicating with Config Server'
+  director.config_server.uaa.url:
+    description: 'URL for the UAA server used for authenticating access to Config Server'
+  director.config_server.uaa.client_id:
+    description: 'UAA client id to access Config Server'
+  director.config_server.uaa.client_secret:
+    description: 'UAA client secret to access Config Server'
+  director.config_server.uaa.ca_cert:
+    description: 'CA cert to trust when communicating with UAA'
+
+  # Director User Management
+  director.user_management.provider:
+    description: 'User management implementation (local|uaa)'
+    default: local
+  director.user_management.uaa.url:
+    description: 'Uaa URL, specify either the url or the urls attribute'
+  director.user_management.uaa.urls:
+    description: 'List of Uaa URLs, specify either the url or the urls attribute'
+  director.user_management.uaa.symmetric_key:
+    description: 'Symmetric key to verify Uaa token'
+  director.user_management.uaa.public_key:
+    description: 'Public key to verify Uaa token when token is encoded with asymmetric encryption'
+  director.user_management.local.users:
+    description: 'List of users that can authenticate with director in non-Uaa mode'
+
+  # Default SSH Gateway Settings
+  director.default_ssh_options.gateway_host:
+    description: 'Default host to use as ssh gateway with bosh ssh command'
+  director.default_ssh_options.gateway_user:
+    description: 'Default user to use with bosh ssh command'
+    default: vcap
+
+  nats.user:
+    description: Username to connect to nats with
+    default: nats
+  nats.password:
+    description: Password to connect to nats with
+  nats.address:
+    description: Address of the nats server
+  nats.port:
+    description: Port that the nats server listens on
+    default: 4222
+
+  # Director Database
+  director.db.adapter:
+    description: The type of database used (mysql2|postgres|sqlite)
+    default: postgres
+  director.db.user:
+    description: Username used for the director database
+    default: bosh
+  director.db.password:
+    description: Password used for the director database
+  director.db.host:
+    description: |
+      Address of the director database, for example, in the case of AWS RDS:
+      rds-instance-name.coqxxxxxxxxx.us-east-1.rds.amazonaws.com
+    default: 127.0.0.1
+  director.db.port:
+    description: Port of the director database (e.g, msyql2 adapter would generally use 3306)
+    default: 5432
+  director.db.database:
+    description: Name of the director database
+    default: bosh
+  director.db.connection_options:
+    description: Additional options for the database
+    default:
+      max_connections: 32  #Maximum size of the connection pool
+      pool_timeout: 10     #Number of seconds to wait if a connection cannot be acquired before  raising an error
+
+  # DNS
+  dns.address:
+    description: Address of the powerdns server
+  dns.domain_name:
+    description: TLD of the dns zone used by bosh
+    default: bosh
+  dns.db.adapter:
+    description: DNS Database adapter
+    default: postgres
+  dns.db.user:
+    description: DNS Database user
+    default: bosh
+  dns.db.password:
+    description: DNS Database password
+  dns.db.host:
+    description: DNS Database host
+    default: 127.0.0.1
+  dns.db.port:
+    description: Port that the powerdns database listens on
+    default: 5432
+  dns.db.database:
+    description: Name of the powerdns database
+    default: bosh
+  dns.db.connection_options:
+    description: Additional options for the powerdns database
+    default:
+      max_connections: 32  #Maximum size of the connection pool
+      pool_timeout: 10     #Number of seconds to wait if a connection cannot be acquired before  raising an error
+
+  # Events
+  director.events.record_events:
+    description: Enable recording of events to the database and syslog
+    default: false
+  director.events.max_events:
+    description: Max number of events to keep
+    default: 10000
+  director.events.cleanup_schedule:
+    description: RufusScheduler cron formatted schedule for cleanup of events
+    default: '0 * * * * UTC'
+
+  # Blobstore
+  blobstore.provider:
+    description: Provider of the blobstore used by director and agent (dav|simple|s3)
+    default: 'dav'
+  blobstore.s3_region:
+    description: Region of the blobstore used by s3 blobstore plugin
+  blobstore.bucket_name:
+    description: AWS S3 Bucket used by s3 blobstore plugin
+  blobstore.credentials_source:
+    description: AWS Credential Source (static / env_or_profile)
+    default: 'static'
+  blobstore.access_key_id:
+    description: AWS access_key_id used by s3 blobstore plugin
+  blobstore.secret_access_key:
+    description: AWS secret_access_key used by s3 blobstore plugin
+  blobstore.address:
+    description: Address of blobstore server used by simple blobstore plugin
+  blobstore.port:
+    description: Port of blobstore server used by simple blobstore plugin
+    default: 25250
+  blobstore.host:
+    description: Host of blobstore server used by simple blobstore plugin
+  blobstore.use_ssl:
+    description: Whether the simple blobstore plugin should use SSL to connect to the blobstore server
+    default: true
+  blobstore.s3_port:
+    description: Port of blobstore server used by s3 blobstore plugin
+    default: 443
+  blobstore.ssl_verify_peer:
+    description: Verify the SSL certificate used on the blobstore?
+    default: true
+  blobstore.s3_signature_version:
+    description: Signature version of the blobstore used by s3 blobstore plugin (optional, if not provided the s3 client decides which version to use)
+  blobstore.server_side_encryption:
+    description: Server-side encryption algorithm used when storing blobs in S3 (Optional - "AES256"|"aws:kms")
+  blobstore.sse_kms_key_id:
+    description: AWS KMS key ID to use for object encryption. All GET and PUT requests for an object protected by AWS KMS will fail if not made via SSL or using SigV4.
+  blobstore.director.user:
+    description: Username director uses to connect to blobstore used by simple blobstore plugin
+  blobstore.director.password:
+    description: Password director uses to connect to blobstore used by simple blobstore plugin
+  blobstore.agent.user:
+    description: Username agent uses to connect to blobstore used by simple blobstore plugin
+  blobstore.agent.password:
+    description: Password agent uses to connect to blobstore used by simple blobstore plugin
+
+  # Blobstore destination for backups
+  #   ex:
+  #     backup_destination
+  #       provider: s3
+  #       options:
+  #         bucket_name: some-bucket-name
+  #         access_key_id: ...
+  #         secret_access_key: ...
+  #
+  director.backup_destination:
+    description: Configuration of the blobstore used by director for backups (dav|simple|s3)
+  director.ignore_missing_gateway:
+    description: Allow gateway to be omitted from subnet configuration. Boshlite vms(containers) do not require gateway.
+    default: false
+
+  # Compiled Package Cache
+  compiled_package_cache.provider:
+    description: Provider of the blobstore used for the compiled package cache
+    default: 's3'
+  compiled_package_cache.options.bucket_name:
+    description: AWS S3 Bucket used for the compiled package cache
+
+  compiled_package_cache.options.credentials_source:
+    description:  AWS credentials (static / env_or_profile)
+    default: 'static'
+  compiled_package_cache.options.access_key_id:
+    description: AWS access_key_id used for the compiled package cache
+  compiled_package_cache.options.secret_access_key:
+    description: AWS secret_access_key used for the compiled package cache
+  compiled_package_cache.options.port:
+    description: Port of blobstore server used for compiled package cache
+    default: 25250
+  compiled_package_cache.options.host:
+    description: Host of blobstore server used for compiled package cache
+  compiled_package_cache.options.use_ssl:
+    description: Whether the simple blobstore plugin should use SSL to connect to the blobstore server
+    default: true
+  compiled_package_cache.options.ssl_verify_peer:
+    description: Verify the SSL certificate used on the blobstore?
+    default: true
+  compiled_package_cache.options.s3_port:
+    description: Port of blobstore server used by s3 blobstore plugin
+    default: 443
+  compiled_package_cache.options.s3_signature_version:
+    description: Signature version of the blobstore used by s3 blobstore plugin (optional, if not provided the s3 client decides which version to use)
+  compiled_package_cache.options.server_side_encryption:
+    description: Server-side encryption algorithm used when storing blobs in S3 (Optional - "AES256"|"aws:kms")
+  compiled_package_cache.options.sse_kms_key_id:
+    description: AWS KMS key ID to use for object encryption. All GET and PUT requests for an object protected by AWS KMS will fail if not made via SSL or using SigV4.
+
+  ntp:
+    description: List of ntp server IPs. pool.ntp.org attempts to return IPs closest to your location, but you can still specify if needed.
+    default:
+      - 0.pool.ntp.org
+      - 1.pool.ntp.org
+
+  director.trusted_certs:
+    description: Cerfiticates that VMs created by this director should trust in addition to those packaged with the stemcell (PEM encoded; zero or more certs allowed)
+    default: ''
+
+  # Cpi
+  director.cpi_job:
+    description: Name of cpi job (null to use bundled cpi gems)
+  agent.blobstore.credentials_source:
+    description:  AWS credentials (static / env_or_profile)
+    default: 'static'
+  agent.blobstore.access_key_id:
+    description: AWS access_key_id for agent used by s3 blobstore plugin
+  agent.blobstore.secret_access_key:
+    description: AWS secret_access_key for agent used by s3 blobstore plugin
+  agent.blobstore.s3_region:
+    description: AWS region for agent used by s3 blobstore plugin
+  agent.blobstore.address:
+    description: Address for agent to connect to blobstore server used by simple blobstore plugin
+  agent.blobstore.port:
+    description: Port for agent to connect to blobstore server used by simple blobstore plugin
+  agent.blobstore.host:
+    description: Host of blobstore server used by simple blobstore plugin
+  agent.blobstore.use_ssl:
+    description: Whether the simple blobstore plugin should use SSL to connect to the blobstore server
+    default: true
+  agent.blobstore.ssl_verify_peer:
+    description: Verify the SSL certificate used on the blobstore?
+    default: true
+  agent.blobstore.s3_signature_version:
+    description: Signature version of the blobstore used by s3 blobstore plugin (optional, if not provided the s3 client decides which version to use)
+  agent.blobstore.server_side_encryption:
+    description: Server-side encryption algorithm used when storing blobs in S3 (Optional - "AES256"|"aws:kms")
+  agent.blobstore.sse_kms_key_id:
+    description: AWS KMS key ID to use for object encryption. All GET and PUT requests for an object protected by AWS KMS will fail if not made via SSL or using SigV4.
+  agent.nats.address:
+    description: Address for agent to connect to nats
+  registry.address:
+    description: Address of the Registry to connect to
+  registry.port:
+    description: Port of the Registry to connect to
+    default: 25777
+  registry.username:
+    description: User to access the Registry
+  registry.password:
+    description: Password to access the Registry

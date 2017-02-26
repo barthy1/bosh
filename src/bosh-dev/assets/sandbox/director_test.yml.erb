@@ -1,0 +1,154 @@
+---
+name: <%= director_name %>
+uuid: deadbeef
+
+port: <%= director_ruby_port %>
+mbus: nats://localhost:<%= nats_port %>
+
+logging:
+  level: DEBUG
+
+dir: <%= sandbox_root %>/boshdir
+
+scheduled_jobs:
+  - command: SnapshotDeployments
+    schedule: '*/2 * * * * *'
+  - command: ScheduledBackup
+    schedule: '*/1 * * * * *'
+
+db: &bosh_db
+  adapter: <%= database.adapter %>
+  database: <%= database.db_name %>
+  # Settings are set to defaults since DbBackup
+  # currently does not support export without them
+  host: 127.0.0.1
+  port: <%= database.port %>
+  user: <%= database.username %>
+  password: <%= database.password %>
+
+  # Failure to set `sslmode` will produce following error
+  # 'PG::Error: SSL error: decryption failed or bad record mac:'
+  sslmode: "disable"
+
+  connection_options:
+    max_connections: 32
+    pool_timeout: 10
+    reconnect: <%= database.adapter == 'mysql2' ? true : false %>
+
+<% if dns_enabled %>
+dns:
+  db: *bosh_db
+<% end %>
+
+trusted_certs: <%= trusted_certs %>
+
+local_dns:
+  enabled: <%= local_dns['enabled'] %>
+  include_index: <%= local_dns['include_index'] %>
+
+verify_multidigest_path: <%= verify_multidigest_path %>
+
+blobstore: &director_blobstore
+  provider: local
+  options:
+    blobstore_path: <%= blobstore_storage_dir %>
+
+backup_destination:
+  provider: local
+  options:
+    blobstore_path: <%= sandbox_root %>/backup_destination
+
+compiled_package_cache:
+  <<: *director_blobstore
+
+scan_and_fix:
+  auto_fix_stateful_nodes: <%= director_fix_stateful_nodes || false %>
+
+snapshots:
+  enabled: true
+
+flush_arp: true
+
+cloud:
+  provider:
+    name: <%= external_cpi_config[:name] %>
+    path: <%= external_cpi_config[:job_path] %>
+  properties:
+    nats: nats://localhost:<%= nats_port %>
+    dir: <%= cloud_storage_dir %>
+    agent:
+      blobstore:
+        <<: *director_blobstore
+      server:
+        host: 127.0.0.1
+        host: 127.0.0.1
+        password:
+
+user_management:
+  provider: <%= user_authentication %>
+  <% if user_authentication == 'uaa' %>
+  uaa:
+    symmetric_key: uaa-secret-key
+    # matches public key in asymmetric/uaa.yml
+    public_key: |
+      -----BEGIN PUBLIC KEY-----
+      MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC/85WUjM7WKxnSMkd/TtGo+WWX
+      kI5pH8ACBtb5oameiMJIw/wZ+dtyIwU+NZ0mKua+IzpGL1++bLJL0fDxE1LpD88j
+      WzjaaTp8930UyY23oMxSa6JMG6OpDW469VTkY1g3uE/RAFtg7J9ZnDrTrMFJrduV
+      VRs5sM3o4r1UYUTD6wIDAQAB
+      -----END PUBLIC KEY-----
+    url: <%= uaa_url %>
+  <% else %>
+  local:
+    <% if users_in_manifest %>
+    users:
+    - {name: test, password: test}
+    - {name: hm, password: pass}
+    <% end %>
+  <% end %>
+
+enable_post_deploy: <%= enable_post_deploy %>
+enable_nats_delivered_templates: <%= enable_nats_delivered_templates %>
+
+<% if config_server_enabled %>
+config_server:
+  enabled: true
+  url: <%= config_server_url %>
+  ca_cert: |
+    -----BEGIN CERTIFICATE-----
+    MIICsjCCAhugAwIBAgIJAJkwSGGr4Q23MA0GCSqGSIb3DQEBBQUAMEUxCzAJBgNV
+    BAYTAkFVMRMwEQYDVQQIEwpTb21lLVN0YXRlMSEwHwYDVQQKExhJbnRlcm5ldCBX
+    aWRnaXRzIFB0eSBMdGQwIBcNMTYwNzA2MTM1ODU0WhgPMjI5MDA0MjAxMzU4NTRa
+    MEUxCzAJBgNVBAYTAkFVMRMwEQYDVQQIEwpTb21lLVN0YXRlMSEwHwYDVQQKExhJ
+    bnRlcm5ldCBXaWRnaXRzIFB0eSBMdGQwgZ8wDQYJKoZIhvcNAQEBBQADgY0AMIGJ
+    AoGBAL86uN6N3vQnSeUpwvAUM6fiID4EF6sN3hFEqlDZ8o454U4tI1O8/QDNK2Cu
+    aLF1qNMhotLxuD4R9aEgylsFoIJOMuauB76i5wTgi/Ejk8sVvqXCR0Kco26kduaC
+    otumlg3ubuSmUXMrllJxXBG3Ztb4pBAB3vTwWMvHcVckCshFAgMBAAGjgacwgaQw
+    HQYDVR0OBBYEFFJfxRKZxmLYlVzL/62aePFB8BxfMHUGA1UdIwRuMGyAFFJfxRKZ
+    xmLYlVzL/62aePFB8BxfoUmkRzBFMQswCQYDVQQGEwJBVTETMBEGA1UECBMKU29t
+    ZS1TdGF0ZTEhMB8GA1UEChMYSW50ZXJuZXQgV2lkZ2l0cyBQdHkgTHRkggkAmTBI
+    YavhDbcwDAYDVR0TBAUwAwEB/zANBgkqhkiG9w0BAQUFAAOBgQCriKDu5YZUWdk8
+    wO2o83o8Dk4nRAmJ48lD5MJVgght89dbo6zKXmtjf33wxl5iJOTthM1cYna/85NE
+    5GuNSO9+i3E2Bb+uv9LXIDtm/SwPmqzcdoIyIa+DgyqI1RCnV6MiBhAtPZ5VVzwH
+    jN+3WBwg0RucmyXbMrStizDrwWPccw==
+    -----END CERTIFICATE-----
+  ca_cert_path: <%= config_server_cert_path %>
+
+  uaa:
+    url: <%= config_server_uaa_url %>
+    client_id: <%= config_server_uaa_client_id %>
+    client_secret: <%= config_server_uaa_client_secret %>
+    ca_cert_path: <%= config_server_uaa_ca_cert_path %>
+
+<% else %>
+config_server:
+  enabled: false
+<% end %>
+
+generate_vm_passwords: <%= generate_vm_passwords %>
+
+remove_dev_tools: <%= remove_dev_tools %>
+
+record_events: true
+
+director_ips: <%= director_ips %>
