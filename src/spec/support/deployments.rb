@@ -485,6 +485,37 @@ module Bosh::Spec
       }
     end
 
+    def self.manifest_with_addons
+      minimal_manifest.merge(
+        'name' => DEFAULT_DEPLOYMENT_NAME,
+        'releases' => [
+          {
+            'name' => 'bosh-release',
+            'version' => '0.1-dev',
+          },
+          {'name' => 'dummy2',
+            'version' => '0.2-dev'}
+        ],
+        'jobs' => [{
+          'name' => 'foobar',
+          'templates' => [{'name' => 'foobar', 'release' => 'bosh-release'}],
+          'instances' => 1,
+          'resource_pool' => 'a',
+          'networks' => [{'name' => 'a'}]
+        }],
+        'addons' => [{
+          'name' => 'addon1',
+          'jobs' => [{'name' => 'dummy_with_properties', 'release' => 'dummy2'}],
+          'properties' => {'dummy_with_properties' => {'echo_value' => 'prop_value'}},
+          'include' => {
+            'jobs' => [
+              {'name' => 'foobar', 'release' => 'bosh-release'}
+            ]
+          }
+        }]
+      )
+    end
+
     def self.test_deployment_manifest
       {
           'name' => 'test_deployment',

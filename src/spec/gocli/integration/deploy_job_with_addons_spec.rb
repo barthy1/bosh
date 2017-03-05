@@ -179,4 +179,24 @@ describe 'deploy job with addons', type: :integration do
       deploy_simple_manifest(manifest_hash: manifest_hash)
     end
   end
+
+  it 'ensures that deployment addon job properties are assigned' do
+    manifest_hash = Bosh::Common::DeepCopy.copy(Bosh::Spec::Deployments.manifest_with_addons)
+
+    bosh_runner.run("upload-release #{spec_asset('bosh-release-0+dev.1.tgz')}")
+    bosh_runner.run("upload-release #{spec_asset('dummy2-release.tgz')}")
+
+    upload_stemcell
+
+    upload_cloud_config(manifest_hash: manifest_hash)
+    deploy_simple_manifest(manifest_hash: manifest_hash)
+
+    foobar_instance = director.instance('foobar', '0')
+
+    expect(File.exist?(foobar_instance.job_path('dummy_with_properties'))).to eq(true)
+    expect(File.exist?(foobar_instance.job_path('foobar'))).to eq(true)
+
+    template = foobar_instance.read_job_template('dummy_with_properties', 'bin/dummy_with_properties_ctl')
+    expect(template).to include("echo 'prop_value'")
+  end
 end
