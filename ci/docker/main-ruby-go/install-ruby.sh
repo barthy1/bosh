@@ -23,6 +23,7 @@ tar -xzvf ruby-install-${RUBY_INSTALL_VER}.tar.gz
 cd ruby-install-${RUBY_INSTALL_VER}/
 make install
 cd ..
+
 rm -rf ruby-install-${RUBY_INSTALL_VER}/
 rm ruby-install-${RUBY_INSTALL_VER}.tar.gz
 
@@ -30,8 +31,14 @@ install_ruby() {
     local version=$1
     local sha=$2
 
+    if [ "`uname -m`" == "ppc64le" ]; then
+      extra='-- --build=powerpc64le-linux-gnu'
+    else
+      extra=''
+    fi
+
     echo "Installing ruby $version..."
-    ruby-install --sha256 "$sha" ruby "$version"
+    ruby-install --sha256 "$sha" ruby "$version" $extra
 
     source /etc/profile.d/chruby.sh
 

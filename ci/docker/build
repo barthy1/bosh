@@ -12,4 +12,10 @@ IMAGE_NAME="$1"
 DOCKER_IMAGE=${DOCKER_IMAGE:-bosh/$IMAGE_NAME}
 
 cd "$DIR/$IMAGE_NAME"
-docker build -t $DOCKER_IMAGE .
+
+DOCKERFILE='Dockerfile'
+if [ "`uname -m`" == "ppc64le" ]; then
+   DOCKERFILE='Dockerfile.ppc64le'
+fi
+
+docker build -t $DOCKER_IMAGE -f $DOCKERFILE .
