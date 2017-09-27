@@ -11,21 +11,25 @@ module Bosh::Director
       end
     end
 
-    def matches?(instance, instances_in_group)
-      return true if @filters.empty?
-      found = false
+    def match(instances)
+      return instances, @filters.map(&:original) if @filters.empty?
+      return [], [] if instances.empty?
+
+      results = Set.new
+      applied_filters = Set.new
+
       @filters.each do |filter|
-        if filter.matches?(instance, instances_in_group)
-          @matched_requests.add(filter)
-          found = true
+        matched_instances = instances.select{|instance| filter.matches?(instance, instances)}
+        results += matched_instances
+
+        if !matched_instances.empty?
+          applied_filters.add(filter)
         end
       end
-      found
+
+      return results.to_a, (@filters-applied_filters.to_a).compact.map(&:original)
     end
 
-    def unmatched_criteria
-      (@filters - @matched_requests.to_a).compact.map(&:original)
-    end
   end
 
   class Errand::InstanceFilter
@@ -39,14 +43,14 @@ module Bosh::Director
 
     def matches?(instance, instances_in_group)
       if @index_or_id.nil? || @index_or_id.empty?
-        return instance.job_name == @group_name
+        return instance.job == @group_name
       end
 
-      if @index_or_id == 'first' && instance.job_name == @group_name
+      if @index_or_id == 'first' && instance.job == @group_name
         return instances_in_group.map(&:uuid).sort.first == instance.uuid
       end
 
-      instance.job_name == @group_name &&
+      instance.job == @group_name &&
         (instance.uuid == @index_or_id || instance.index.to_s == @index_or_id.to_s )
     end
   end
