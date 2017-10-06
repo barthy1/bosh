@@ -47,6 +47,7 @@ module Bosh::Director
       DeploymentPlan::CompilationConfig.new(compilation_spec, {}, [])
     end
     let(:deployment_model) { Models::Deployment.make(name: 'mycloud') }
+    let(:tags) { {'tag1' => 'value1'} }
     let(:deployment_plan) do
       instance_double(Bosh::Director::DeploymentPlan::Planner,
         compilation: compilation_config,
@@ -55,6 +56,7 @@ module Bosh::Director
         ip_provider: ip_provider,
         recreate: false,
         template_blob_cache: template_blob_cache,
+        tags: tags
       )
     end
     let(:subnet) {instance_double('Bosh::Director::DeploymentPlan::ManualNetworkSubnet', range: NetAddr::CIDR.create('192.168.0.0/24'))}
@@ -160,6 +162,11 @@ module Bosh::Director
 
         compilation_instance = Models::Instance.find(uuid: 'instance-uuid-1')
         expect(compilation_instance.active_vm.trusted_certs_sha1).to eq(::Digest::SHA1.hexdigest(trusted_certs))
+      end
+
+      it 'passes tags to vm' do
+        expect_any_instance_of(MetadataUpdater).to receive(:update_vm_metadata).with(anything, tags, anything)
+        action
       end
 
       it 'should record creation event' do
