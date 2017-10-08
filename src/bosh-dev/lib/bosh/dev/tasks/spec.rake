@@ -10,6 +10,7 @@ require 'bosh/dev/sandbox/services/uaa_service'
 require 'bosh/dev/sandbox/services/config_server_service'
 require 'bosh/dev/legacy_agent_manager'
 require 'bosh/dev/verify_multidigest_manager'
+require 'bosh/dev/gnatsd_manager'
 require 'parallel_tests/tasks'
 
 namespace :spec do
@@ -57,9 +58,13 @@ namespace :spec do
         unless ENV['SKIP_VERIFY_MULTIDIGEST'] == 'true'
           Bosh::Dev::VerifyMultidigestManager.install
         end
+
+        unless ENV['SKIP_GNATSD'] == 'true'
+          Bosh::Dev::GnatsdManager.install
+        end
       end
 
-      sh('go/src/github.com/cloudfoundry/bosh-agent/bin/build')
+      compile_dependencies
     end
 
     desc 'Download BOSH Agent. Use only for local dev environment'
@@ -114,6 +119,10 @@ namespace :spec do
       end
       puts command
       abort unless system(command)
+    end
+
+    def compile_dependencies
+      sh('go/src/github.com/cloudfoundry/bosh-agent/bin/build')
     end
   end
 

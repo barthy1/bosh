@@ -219,9 +219,7 @@ module Bosh::Director
             before do
               allow(job2).to receive(:instances).and_return([
                 instance_double('Bosh::Director::DeploymentPlan::Instance', {
-                  model: instance_double('Bosh::Director::Models::Instance', {
-                    active_vm: instance_double('Bosh::Director::Models::Vm'),
-                  })
+		  vm_created?: true,
                 })
               ])
             end
@@ -235,9 +233,7 @@ module Bosh::Director
             before do
               allow(job2).to receive(:instances).and_return([
                 instance_double('Bosh::Director::DeploymentPlan::Instance', {
-                  model: instance_double('Bosh::Director::Models::Instance', {
-                    active_vm: nil,
-                  })
+		  vm_created?: false,
                 })
               ])
             end
@@ -284,6 +280,40 @@ module Bosh::Director
 
           it 'return instance groups with errand lifecylce' do
             expect(subject.errand_instance_groups).to match_array([instance_group_2, instance_group_3])
+          end
+        end
+
+        describe '#use_short_dns_addresses?' do
+          context 'when deployment use_short_dns_addresses is defined' do
+            context 'when deployment use_short_dns_addresses is TRUE' do
+              before do
+                subject.set_features(DeploymentFeatures.new(true, true))
+              end
+
+              it 'returns TRUE' do
+                expect(subject.use_short_dns_addresses?).to eq(true)
+              end
+            end
+
+            context 'when deployment use_short_dns_addresses is FALSE' do
+              before do
+                subject.set_features(DeploymentFeatures.new(true, false))
+              end
+
+              it 'returns FALSE' do
+                expect(subject.use_short_dns_addresses?).to eq(false)
+              end
+            end
+          end
+
+          context 'when deployment use_short_dns_addresses is NOT defined' do
+            before do
+              subject.set_features(DeploymentFeatures.new)
+            end
+
+            it 'returns FALSE' do
+              expect(subject.use_short_dns_addresses?).to eq(false)
+            end
           end
         end
 

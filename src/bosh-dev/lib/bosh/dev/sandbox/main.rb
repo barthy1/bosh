@@ -15,6 +15,7 @@ require 'bosh/dev/sandbox/services/nginx_service'
 require 'bosh/dev/sandbox/services/connection_proxy_service'
 require 'bosh/dev/sandbox/services/uaa_service'
 require 'bosh/dev/sandbox/services/config_server_service'
+require 'bosh/dev/gnatsd_manager'
 require 'cloud/dummy'
 require 'logging'
 
@@ -27,10 +28,13 @@ module Bosh::Dev::Sandbox
     HM_CONFIG = 'health_monitor.yml'
     DEFAULT_HM_CONF_TEMPLATE_NAME = 'health_monitor.yml.erb'
 
+    NATS_CONFIG = 'nats.conf'
+    DEFAULT_NATS_CONF_TEMPLATE_NAME = 'nats.conf.erb'
+
     EXTERNAL_CPI = 'cpi'
     EXTERNAL_CPI_TEMPLATE = File.join(SANDBOX_ASSETS_DIR, 'cpi.erb')
 
-    UPGRADE_SPEC_ASSETS_DIR =  File.expand_path('spec/assets/upgrade', REPO_ROOT)
+    UPGRADE_SPEC_ASSETS_DIR = File.expand_path('spec/assets/upgrade', REPO_ROOT)
 
     attr_reader :name
     attr_reader :health_monitor_process
@@ -50,6 +54,10 @@ module Bosh::Dev::Sandbox
     attr_reader :cpi
 
     attr_reader :nats_log_path
+    attr_reader :nats_host
+
+    attr_reader :nats_user, :nats_password, :nats_allow_legacy_clients
+    attr_reader :nats_needs_restart
 
     attr_accessor :trusted_certs
 
@@ -79,13 +87,18 @@ module Bosh::Dev::Sandbox
       @port_provider = PortProvider.new(test_env_number)
 
       @logs_path = sandbox_path('logs')
+      FileUtils.mkdir_p(@logs_path)
+
       @dns_db_path = sandbox_path('director-dns.sqlite')
       @task_logs_dir = sandbox_path('boshdir/tasks')
       @blobstore_storage_dir = sandbox_path('bosh_test_blobstore')
       @verify_multidigest_path = File.join(REPO_ROOT, 'tmp', 'verify-multidigest', 'verify-multidigest')
 
-      FileUtils.mkdir_p(@logs_path)
-
+      @nats_user = 'mbus'
+      @nats_password = 'password'
+      @nats_allow_legacy_clients = false
+      @nats_needs_restart = false
+      @nats_log_path = File.join(@logs_path, 'nats.log')
       setup_nats
 
       @uaa_service = UaaService.new(@port_provider, sandbox_root, base_log_path, @logger)
@@ -94,7 +107,7 @@ module Bosh::Dev::Sandbox
 
       setup_database(db_opts)
 
-      director_config = sandbox_path(DirectorService::DEFAULT_DIRECTOR_CONFIG)
+      director_config_path = sandbox_path(DirectorService::DEFAULT_DIRECTOR_CONFIG)
       director_tmp_path = sandbox_path('boshdir')
       @director_service = DirectorService.new(
         {
@@ -102,14 +115,14 @@ module Bosh::Dev::Sandbox
           director_port: director_ruby_port,
           base_log_path: base_log_path,
           director_tmp_path: director_tmp_path,
-          director_config: director_config
+          director_config: director_config_path
         },
         @logger
       )
       setup_heath_monitor
 
       @scheduler_process = Service.new(
-        %W[bosh-director-scheduler -c #{director_config}],
+        %W[bosh-director-scheduler -c #{director_config_path}],
         {output: "#{base_log_path}.scheduler.out"},
         @logger,
       )
@@ -119,7 +132,7 @@ module Bosh::Dev::Sandbox
       @cpi = Bosh::Clouds::Dummy.new({
         'dir' => cloud_storage_dir,
         'agent' => {'blobstore' => {}},
-        'nats' => "nats://localhost:#{nats_port}" }, {})
+        'nats' => "nats://localhost:#{nats_port}"}, {})
       reconfigure({})
     end
 
@@ -185,7 +198,14 @@ module Bosh::Dev::Sandbox
         enable_nats_delivered_templates: @enable_nats_delivered_templates,
         generate_vm_passwords: @generate_vm_passwords,
         remove_dev_tools: @remove_dev_tools,
-        director_ips: @director_ips
+        director_ips: @director_ips,
+        nats_server_ca_path: get_nats_server_ca_path,
+        nats_client_ca_private_key_path: get_nats_client_ca_private_key_path,
+        nats_client_ca_certificate_path: get_nats_client_ca_certificate_path,
+        nats_director_tls: nats_certificate_paths['clients']['director'],
+        nats_allow_legacy_clients: @nats_allow_legacy_clients,
+        nats_user: @nats_user,
+        nats_password: @nats_password,
       }
       DirectorConfig.new(attributes, @port_provider)
     end
@@ -297,10 +317,55 @@ module Bosh::Dev::Sandbox
       @generate_vm_passwords = options.fetch(:generate_vm_passwords, false)
       @remove_dev_tools = options.fetch(:remove_dev_tools, false)
       @director_ips = options.fetch(:director_ips, [])
+      @with_incorrect_nats_server_ca = options.fetch(:with_incorrect_nats_server_ca, false)
+      check_if_nats_need_reset(options.fetch(:nats_allow_legacy_clients, false))
+    end
+
+    def check_if_nats_need_reset(allow_legacy_clients)
+      @nats_needs_restart = @nats_allow_legacy_clients != allow_legacy_clients
+      @nats_allow_legacy_clients = allow_legacy_clients
     end
 
     def certificate_path
       File.join(SANDBOX_ASSETS_DIR, 'ca', 'certs', 'rootCA.pem')
+    end
+
+    def nats_certificate_paths
+      {
+        'ca_path' => get_nats_server_ca_path,
+
+        'server' => {
+          'certificate_path' => File.join(SANDBOX_ASSETS_DIR, 'nats_server', 'certs', 'nats', 'certificate.pem'),
+          'private_key_path' => File.join(SANDBOX_ASSETS_DIR, 'nats_server', 'certs', 'nats', 'private_key'),
+        },
+        'clients' => {
+          'director' => {
+            'certificate_path' => File.join(SANDBOX_ASSETS_DIR, 'nats_server', 'certs', 'director', 'certificate.pem'),
+            'private_key_path' => File.join(SANDBOX_ASSETS_DIR, 'nats_server', 'certs', 'director', 'private_key'),
+          },
+          'health_monitor' => {
+            'certificate_path' => File.join(SANDBOX_ASSETS_DIR, 'nats_server', 'certs', 'health_monitor', 'certificate.pem'),
+            'private_key_path' => File.join(SANDBOX_ASSETS_DIR, 'nats_server', 'certs', 'health_monitor', 'private_key'),
+          },
+          'test_client' => {
+            'certificate_path' => File.join(SANDBOX_ASSETS_DIR, 'nats_server', 'certs', 'test_client', 'certificate.pem'),
+            'private_key_path' => File.join(SANDBOX_ASSETS_DIR, 'nats_server', 'certs', 'test_client', 'private_key'),
+          }
+        }
+      }
+    end
+
+    def director_nats_config
+      {
+        uri: "nats://localhost:#{nats_port}",
+        ssl: true,
+        tls: {
+          :private_key_file => nats_certificate_paths['clients']['test_client']['private_key_path'],
+          :cert_chain_file  => nats_certificate_paths['clients']['test_client']['certificate_path'],
+          :verify_peer => true,
+          :ca_file => nats_certificate_paths['ca_path'],
+        }
+      }
     end
 
     private
@@ -355,6 +420,16 @@ module Bosh::Dev::Sandbox
         load_db_and_populate_blobstore(@test_initial_state)
       end
 
+      # TODO: Move into its own service.
+      if @nats_needs_restart
+        @nats_process.stop
+        nats_template_path = File.join(SANDBOX_ASSETS_DIR, DEFAULT_NATS_CONF_TEMPLATE_NAME)
+        write_in_sandbox(NATS_CONFIG, load_config_template(nats_template_path))
+        setup_nats
+        @nats_process.start
+        @nats_socket_connector.try_to_connect
+      end
+
       @uaa_service.restart_if_needed if @user_authentication == 'uaa'
       @config_server_service.restart(@with_config_server_trusted_certs) if @config_server_enabled
 
@@ -369,6 +444,8 @@ module Bosh::Dev::Sandbox
       hm_template_path = File.join(SANDBOX_ASSETS_DIR, DEFAULT_HM_CONF_TEMPLATE_NAME)
       write_in_sandbox(HM_CONFIG, load_config_template(hm_template_path))
       write_in_sandbox(EXTERNAL_CPI, load_config_template(EXTERNAL_CPI_TEMPLATE))
+      nats_template_path = File.join(SANDBOX_ASSETS_DIR, DEFAULT_NATS_CONF_TEMPLATE_NAME)
+      write_in_sandbox(NATS_CONFIG, load_config_template(nats_template_path))
       FileUtils.chmod(0755, sandbox_path(EXTERNAL_CPI))
       FileUtils.mkdir_p(blobstore_storage_dir)
     end
@@ -416,15 +493,32 @@ module Bosh::Dev::Sandbox
     end
 
     def setup_nats
-      @nats_log_path = File.join(@logs_path, 'nats.log')
+      gnatsd_path = Bosh::Dev::GnatsdManager.executable_path
+      conf = File.join(sandbox_root, NATS_CONFIG)
 
       @nats_process = Service.new(
-        %W[nats-server -p #{nats_port} -T -l #{@nats_log_path}],
+        %W[#{gnatsd_path} -c #{conf} -T -D ],
         {stdout: $stdout, stderr: $stderr},
         @logger
       )
 
       @nats_socket_connector = SocketConnector.new('nats', 'localhost', nats_port, @nats_log_path, @logger)
+    end
+
+    def get_nats_server_ca_path
+      if @with_incorrect_nats_server_ca
+        File.join(SANDBOX_ASSETS_DIR, 'nats_server', 'certs', 'childless_rootCA.pem')
+      else
+        File.join(SANDBOX_ASSETS_DIR, 'nats_server', 'certs', 'rootCA.pem')
+      end
+    end
+
+    def get_nats_client_ca_certificate_path
+      File.join(SANDBOX_ASSETS_DIR, 'nats_server', 'certs', 'rootCA.pem')
+    end
+
+    def get_nats_client_ca_private_key_path
+      File.join(SANDBOX_ASSETS_DIR, 'nats_server', 'certs', 'rootCA.key')
     end
 
     attr_reader :director_tmp_path, :dns_db_path, :task_logs_dir

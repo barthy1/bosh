@@ -63,10 +63,11 @@ module Bosh::Monitor
     def connect_to_mbus
       NATS.on_error do |e|
         unless @shutting_down
+          redacted_message = @mbus.password.nil? ? "NATS client error: #{e}" : "NATS client error: #{e}".gsub(@mbus.password, '*******')
           if e.kind_of?(NATS::ConnectError)
-            handle_em_error(e)
+            handle_em_error(redacted_message)
           else
-            log_exception(e)
+            log_exception(redacted_message)
           end
         end
       end
@@ -75,7 +76,13 @@ module Bosh::Monitor
         :uri       => @mbus.endpoint,
         :user      => @mbus.user,
         :pass      => @mbus.password,
-        :autostart => false
+        :autostart => false,
+        :tls => {
+          :ca_file => @mbus.server_ca_path,
+          :private_key_file => @mbus.client_private_key_path,
+          :cert_chain_file  => @mbus.client_certificate_path
+        },
+        :ssl => true
       }
 
       Bhm.nats = NATS.connect(nats_client_options) do

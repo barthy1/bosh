@@ -15,14 +15,14 @@ module Bosh::Director
 
       deployment = Models::Deployment.first(name: deployment_name)
       # Models::Instance
-      instances = @instance_manager.find_instances_by_deployment(deployment)
+      instances_from_db = @instance_manager.find_instances_by_deployment(deployment)
 
       matcher = Errand::InstanceMatcher.new(requested_instances)
-      instances, unmatched_filters = matcher.match(instances)
+      instances, unmatched_filters = matcher.match(instances_from_db)
 
       event_log_stage.advance_and_track('Preparing deployment') do
         deployment_planner = @deployment_planner_provider.get_by_name(deployment_name, instances)
-        dns_encoder = LocalDnsEncoderManager.new_encoder_with_updated_index(deployment_planner.availability_zones.map(&:name))
+        dns_encoder = LocalDnsEncoderManager.create_dns_encoder(deployment_planner.use_short_dns_addresses?)
         template_blob_cache = deployment_planner.template_blob_cache
 
         errand_is_job_name = true
