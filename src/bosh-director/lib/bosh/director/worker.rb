@@ -1,4 +1,14 @@
 module Bosh::Director
+  class EnqueueOrder < Delayed::Plugin
+    callbacks do |lifecycle|
+      lifecycle.around(:enqueue) do |job, &block|
+        Delayed::Worker.delay_jobs ? job.save : job.invoke_job
+        job.hook(:enqueue)
+        block.call(job)
+      end
+    end
+  end
+
   class Worker
 
     def initialize(config, index=0)
@@ -8,7 +18,7 @@ module Bosh::Director
 
     def prep
       Delayed::Worker.logger = @config.worker_logger
-
+      Delayed::Worker.plugins << Bosh::Director::EnqueueOrder
       Bosh::Director::App.new(@config)
 
       Delayed::Worker.backend = :sequel

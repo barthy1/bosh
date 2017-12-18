@@ -568,5 +568,15 @@ module Bosh::Spec
         'disk_size' => 123,
       }
     end
+
+    def self.tasks_config(options = {})
+      {
+        'rules' => [{
+          'options' => {
+            'rate_limit' => options.fetch(:limit, 1),
+          },
+        }],
+      }
+    end
   end
 end
